@@ -299,6 +299,7 @@ def print_accounts(cfg):
 
 
 def login_first():
+    bootstrap_login = False
     with config_lock():
         cfg = load_config()
         if cfg["accounts"]:
@@ -307,30 +308,39 @@ def login_first():
             return 0
 
         source = Path.home() / ".codex"
-        if not source.is_dir():
-            raise RouterError("没有发现 ~/.codex，请先运行 codex login")
+        if not source.exists():
+            bootstrap_login = True
+        elif not source.is_dir():
+            raise RouterError(f"默认 Codex 目录异常: {source} 不是目录")
 
-        target = account_home(1)
-        if target.exists() and not target.is_dir():
-            raise RouterError(f"账号目录异常: {target} 不是目录")
-        if target.exists() and any(target.iterdir()):
-            raise RouterError(
-                f"account-1 目录已存在且不为空: {target}，请先清理或迁移后再初始化"
-            )
-        target.mkdir(mode=0o700, parents=True, exist_ok=True)
-        print("复制当前 Codex 登录状态...")
-        for item in source.iterdir():
-            destination = target / item.name
-            if item.is_dir():
-                shutil.copytree(item, destination, dirs_exist_ok=True)
-            else:
-                shutil.copy2(item, destination)
-        sync_shared_for_account(target)
+        if bootstrap_login:
+            pass
+        else:
+            target = account_home(1)
+            if target.exists() and not target.is_dir():
+                raise RouterError(f"账号目录异常: {target} 不是目录")
+            if target.exists() and any(target.iterdir()):
+                raise RouterError(
+                    f"account-1 目录已存在且不为空: {target}，请先清理或迁移后再初始化"
+                )
+            target.mkdir(mode=0o700, parents=True, exist_ok=True)
+            print("复制当前 Codex 登录状态...")
+            for item in source.iterdir():
+                destination = target / item.name
+                if item.is_dir():
+                    shutil.copytree(item, destination, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, destination)
+            sync_shared_for_account(target)
 
-        cfg["accounts"].append({
-            "id": 1, "name": "current", "home": str(target)
-        })
-        save_config(cfg)
+            cfg["accounts"].append({
+                "id": 1, "name": "current", "home": str(target)
+            })
+            save_config(cfg)
+    if bootstrap_login:
+        print("未发现 ~/.codex，将创建 account-1 并开始设备登录...")
+        return login_add()
+    login_set_default(1)
     print("✅ account-1 created")
     return 0
 
@@ -346,6 +356,7 @@ def next_account_id(cfg):
 def login_add():
     with config_lock():
         cfg = load_config()
+        first_account = not cfg["accounts"]
         account_id = next_account_id(cfg)
         home = account_home(account_id)
         home.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -369,6 +380,9 @@ def login_add():
             "home": str(home),
         })
         save_config(cfg)
+    if first_account:
+        login_set_default(account_id)
+        print("✅ 首个账号已设为默认 codex 账号")
     print("✅ account added")
     return 0
 

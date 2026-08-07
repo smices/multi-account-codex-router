@@ -20,6 +20,18 @@ cd multi-account-codex-router
 
 安装器不会读取、迁移、删除或覆盖 `~/.codex` 与 `~/.codex-router`。已有账号和配置会原样保留。
 
+## 首次启用
+
+安装完成后执行：
+
+```bash
+~/codex.sh login
+```
+
+全新机器上，路由器会自动创建 `~/.codex-router`、`account-1`、`shared` 与配置文件，然后打开设备登录流程。登录成功后，首个账号会自动成为直接运行 `codex` 时的默认账号。
+
+如果机器上已有 `~/.codex`，该命令会将其迁移到 `account-1`，统一共享配置，并将默认 `codex` 认证链接到该账号。原默认认证和 session 会保留为 `.default-backup*` 备份，而不会被静默删除。
+
 ## 常用命令
 
 ```bash

@@ -31,7 +31,7 @@ Codex Router
 Usage:
 
   codex.sh login
-      初始化当前账号 ~/.codex 到 account-1
+      迁移当前 ~/.codex，或首次创建 account-1 并开始设备登录
 
   codex.sh login add
       添加新的 Codex 账号
