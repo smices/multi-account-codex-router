@@ -718,6 +718,18 @@ def choose(args):
                 print(account["home"])
                 return 0
 
+        default_account_id_value = default_account_id(cfg)
+        if default_account_id_value is not None:
+            account = next(
+                (item for item in accounts if item["id"] == default_account_id_value),
+                None,
+            )
+            if account is not None:
+                sync_shared_for_account(Path(account["home"]))
+                save_config(cfg)
+                print(account["home"])
+                return 0
+
         position = cfg["last_used"]
         account = accounts[position % len(accounts)]
         sync_shared_for_account(Path(account["home"]))

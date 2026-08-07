@@ -25,54 +25,41 @@ ROUTER_SCRIPT="${CODEX_ROUTER_SCRIPT:-$SCRIPT_DIR/_codex.py}"
 
 show_help() {
   cat <<'EOF'
-
 Codex Router
 
-Usage:
+Usage
+  codex.sh [global options] <command> [args...]
 
-  codex.sh login
-      迁移当前 ~/.codex，或首次创建 account-1 并开始设备登录
+Global options
+  -a <id>            强制指定本次运行账号（绕过默认/轮换）
+  -q                 只输出 Codex 结果，不显示路由提示
+  -v, --verbose      输出路由诊断信息
+  -h, --help         显示帮助
 
-  codex.sh login add
-      添加新的 Codex 账号
-      使用 codex login --device-auth
+Account management
+  account list                 查看账号列表
+  account add                  添加新的 Codex 账号（使用 codex login --device-auth）
+  account rename <id> <name>   为账号设置本地识别名称
+  account sync-shared          同步并修正所有账号的共享配置
+  account default <id>         设置直接运行 codex 时默认账号
+  account retry <id>           重新登录指定账号
 
-  codex.sh login list
-      查看账号列表
+Session & routing
+  resume <SESSION_ID>          恢复 Codex session
+  status                       显示账号状态与实时额度
+  -a <id> <codex args...>     强制指定账号运行任意 codex 命令
 
-  codex.sh login rename <id> <name>
-      为账号设置本地识别名称
-
-  codex.sh login sync-shared
-      同步并修正所有账号的共享配置
-
-  codex.sh login set-default <id>
-      让直接运行 codex 时使用指定账号
-
-  codex.sh status
-      显示每个账号的登录身份、套餐与当前 Codex 额度
-
-  codex.sh login retry <id>
-      重新登录指定账号
-
-  codex.sh resume <SESSION_ID>
-      恢复 Codex session
-
-  codex.sh --account <id> <command>
-      强制指定账号
-
-Examples:
-
-  ~/codex.sh login
-  ~/codex.sh login add
-  ~/codex.sh login list
-  ~/codex.sh login rename 2 quota-account-b
-  ~/codex.sh login sync-shared
-  ~/codex.sh login set-default 3
-  ~/codex.sh status
-  ~/codex.sh resume 019fa256-a879-7111-a646-1e9b5df4ed3f
-  ~/codex.sh --account 2 resume SESSION_ID
-  ~/codex.sh --account=2 resume SESSION_ID
+Examples
+  codex.sh account add                 添加新账号
+  codex.sh account list                查看账号列表
+  codex.sh account retry 2             重新登录账号 2
+  codex.sh account rename 2 alias      修改账号 2 的名称
+  codex.sh account sync-shared         同步共享配置
+  codex.sh account default 3           将账号 3 设为默认
+  codex.sh status                      查看账号状态
+  codex.sh resume <SESSION_ID>         按会话恢复
+  codex.sh -a 2 resume <SESSION_ID>    强制用账号 2 恢复会话
+  codex.sh -a 2 status                强制用账号 2 查看状态
 
 EOF
 }
@@ -120,48 +107,79 @@ run_status() {
 ARGS=("$@")
 CODEX_ARGS=()
 ACCOUNT_ID=""
-SAW_COMMAND=0
+QUIET=0
+VERBOSE=0
 INDEX=0
+ACCOUNT_WAS_FORCED=0
 
 while (( INDEX < ${#ARGS[@]} )); do
   ARG="${ARGS[INDEX]}"
 
-  if (( SAW_COMMAND == 0 )); then
-    case "$ARG" in
-      -h|--help|help)
-        show_help
-        exit 0
-        ;;
-      --account)
-        if (( INDEX + 1 >= ${#ARGS[@]} )); then
-          die 2 "--account 缺少账号 ID"
-        fi
-        ACCOUNT_ID="${ARGS[INDEX + 1]}"
-        if [[ ! "$ACCOUNT_ID" =~ ^[1-9][0-9]*$ ]]; then
-          die 2 "--account 需要正整数账号 ID"
-        fi
-        INDEX=$((INDEX + 2))
-        continue
-        ;;
-      --account=*)
-        ACCOUNT_ID="${ARG#*=}"
-        if [[ ! "$ACCOUNT_ID" =~ ^[1-9][0-9]*$ ]]; then
-          die 2 "--account 需要正整数账号 ID"
-        fi
+  case "$ARG" in
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    -a)
+      if (( INDEX + 1 >= ${#ARGS[@]} )); then
+        die 2 "-a 缺少账号 ID"
+      fi
+      ACCOUNT_ID="${ARGS[INDEX + 1]}"
+      if [[ ! "$ACCOUNT_ID" =~ ^[1-9][0-9]*$ ]]; then
+        die 2 "-a 需要正整数账号 ID"
+      fi
+      ACCOUNT_WAS_FORCED=1
+      INDEX=$((INDEX + 2))
+      continue
+      ;;
+    -q)
+      QUIET=1
+      INDEX=$((INDEX + 1))
+      continue
+      ;;
+    --verbose|-v)
+      VERBOSE=1
+      INDEX=$((INDEX + 1))
+      continue
+      ;;
+    --)
+      INDEX=$((INDEX + 1))
+      while (( INDEX < ${#ARGS[@]} )); do
+        CODEX_ARGS+=("${ARGS[INDEX]}")
         INDEX=$((INDEX + 1))
-        continue
-        ;;
-      *)
-        SAW_COMMAND=1
-        CODEX_ARGS+=("$ARG")
-        ;;
-    esac
-  else
-    CODEX_ARGS+=("$ARG")
-  fi
+      done
+      break
+      ;;
+    *)
+      CODEX_ARGS+=("$ARG")
+      INDEX=$((INDEX + 1))
+      ;;
+  esac
 
-  INDEX=$((INDEX + 1))
 done
+
+if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "help" ]]; then
+  die 2 "已移除 help 子命令，请改用 -h/--help"
+fi
+
+if (( ${#CODEX_ARGS[@]} > 1 )) && [[ "${CODEX_ARGS[0]}" == "account" ]]; then
+  case "${CODEX_ARGS[1]}" in
+    default)
+      CODEX_ARGS=(login set-default "${CODEX_ARGS[@]:2}")
+      ;;
+    list|add|rename|sync-shared|retry)
+      CODEX_ARGS=(login "${CODEX_ARGS[@]:1}")
+      ;;
+    *)
+      die 2 "未知 account 子命令: ${CODEX_ARGS[1]}"
+      ;;
+  esac
+elif (( ${#CODEX_ARGS[@]} == 1 )) && [[ "${CODEX_ARGS[0]}" == "account" ]]; then
+  show_help
+  exit 0
+elif (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "login" ]]; then
+  die 2 "已移除 login 子命令，请改用 account 代替"
+fi
 
 if [[ ! -x "$ROUTER_PYTHON" ]]; then
   die 1 "未找到虚拟环境 Python: $ROUTER_PYTHON，请在仓库目录运行 ./install.sh"
@@ -172,9 +190,9 @@ if [[ ! -f "$ROUTER_SCRIPT" || ! -r "$ROUTER_SCRIPT" ]]; then
 fi
 
 # Management commands are handled by the Python router.
-if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "login" || "${CODEX_ARGS[0]}" == "status" ]]; then
+if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "status" || "${CODEX_ARGS[0]}" == "login" ]]; then
   if [[ -n "$ACCOUNT_ID" ]]; then
-    die 2 "--account 不能与管理命令一起使用"
+    die 2 "-a 不能与管理命令一起使用"
   fi
   if [[ "${CODEX_ARGS[0]}" == "status" ]]; then
     run_status
@@ -183,7 +201,7 @@ if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "login" || "${CODEX_A
   exec "$ROUTER_PYTHON" "$ROUTER_SCRIPT" "${CODEX_ARGS[@]}"
 fi
 
-# --account is router-only and must not be forwarded to the Codex CLI.
+# -a is router-only and must not be forwarded to the Codex CLI.
 CHOOSER_ARGS=()
 if [[ -n "$ACCOUNT_ID" ]]; then
   CHOOSER_ARGS+=(--account "$ACCOUNT_ID")
@@ -200,6 +218,46 @@ if ! command -v codex >/dev/null 2>&1; then
 fi
 
 export CODEX_HOME="$SELECTED_CODEX_HOME"
-printf '🚀 Using:\n   %s\n' "$SELECTED_CODEX_HOME"
+SELECTED_ID="unknown"
+if [[ "$(basename "$SELECTED_CODEX_HOME")" =~ account-([0-9]+)$ ]]; then
+  SELECTED_ID="${BASH_REMATCH[1]}"
+fi
+
+ROUTE_MODE="rotate"
+if (( ACCOUNT_WAS_FORCED == 1 )); then
+  ROUTE_MODE="forced"
+elif [[ "${CODEX_ARGS[0]}" == "resume" && -n "${CODEX_ARGS[1]:-}" ]]; then
+  ROUTE_MODE="resume"
+else
+  DEFAULT_AUTH="$HOME/.codex/auth.json"
+  if [[ -L "$DEFAULT_AUTH" && -f "$DEFAULT_AUTH" ]]; then
+    DEFAULT_ACCOUNT_HOME=$(dirname "$(realpath "$DEFAULT_AUTH")")
+    if [[ "$DEFAULT_ACCOUNT_HOME" == "$SELECTED_CODEX_HOME" ]]; then
+      ROUTE_MODE="default"
+    fi
+  fi
+fi
+
+DEFAULT_AUTH="$HOME/.codex/auth.json"
+if (( QUIET == 0 )); then
+  case "$ROUTE_MODE" in
+    forced)
+      printf '🚀 Using account %s (forced):\n   %s\n' "$SELECTED_ID" "$SELECTED_CODEX_HOME"
+      ;;
+    default)
+      printf '🚀 Using default account %s:\n   %s\n' "$SELECTED_ID" "$SELECTED_CODEX_HOME"
+      ;;
+    resume)
+      printf '🚀 Using account for session %s:\n   %s\n' "${CODEX_ARGS[1]}" "$SELECTED_CODEX_HOME"
+      ;;
+    *)
+      printf '🚀 Using account (round-robin): %s:\n   %s\n' "$SELECTED_ID" "$SELECTED_CODEX_HOME"
+      ;;
+  esac
+fi
+
+if (( VERBOSE == 1 )); then
+  printf '🔎 route_mode=%s account_id=%s\n' "$ROUTE_MODE" "$SELECTED_ID" >&2
+fi
 
 exec codex "${CODEX_ARGS[@]}"
