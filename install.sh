@@ -20,9 +20,16 @@ if ! command -v python3 >/dev/null 2>&1; then
   die "python3 is required to create .venv."
 fi
 
+if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+  die "Python 3.11+ is required: the standard-library tomllib module is unavailable."
+fi
+
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   python3 -m venv "$VENV_DIR"
 fi
+
+# Apply before changing the user launcher so a failed preset leaves it intact.
+"$VENV_DIR/bin/python" "$PROJECT_DIR/_codex.py" config apply
 
 if [[ -e "$HOME_LAUNCHER" || -L "$HOME_LAUNCHER" ]]; then
   if [[ -L "$HOME_LAUNCHER" && "$(readlink "$HOME_LAUNCHER")" == "$PROJECT_LAUNCHER" ]]; then
@@ -40,5 +47,6 @@ fi
 
 printf 'Installed launcher: %s -> %s\n' "$HOME_LAUNCHER" "$PROJECT_LAUNCHER"
 printf 'Python environment: %s\n' "$VENV_DIR"
-printf 'Your ~/.codex and ~/.codex-router directories were not modified.\n'
+printf 'Applied the portable Sol/Luna preset to the router shared configuration.\n'
+printf 'Authentication and session files were not modified.\n'
 printf 'Next: ~/codex.sh login list\n'

@@ -6,6 +6,8 @@
 
 ## 安装
 
+前置条件：Python 3.11 或更高版本（需要标准库 `tomllib`）以及已安装的 Codex CLI。
+
 ```bash
 git clone https://github.com/smices/multi-account-codex-router.git
 cd multi-account-codex-router
@@ -18,7 +20,7 @@ cd multi-account-codex-router
 - 将 `~/codex.sh` 链接到仓库中的启动脚本。
 - 如果 `~/codex.sh` 已存在且不是本仓库的链接，先备份为 `~/codex.sh.pre-router-backup.<timestamp>`。
 
-安装器不会读取、迁移、删除或覆盖 `~/.codex` 与 `~/.codex-router`。已有账号和配置会原样保留。
+安装器会自动应用可移植的 Sol/Luna preset 到路由器的共享配置；只管理该 preset 声明的字段，已有的无关配置、认证和 session 会保留。每个被改动的既有共享文件都会在路由器备份目录中保存时间戳副本。
 
 ## 首次启用
 
@@ -53,6 +55,8 @@ Account management
 | `codex.sh account default 3` | 设置账号 3 为默认账号 |
 | `codex.sh account rename 2 quota-account-b` | 设置账号 2 的本地名称 |
 | `codex.sh account sync-shared` | 同步共享配置 |
+| `codex.sh config apply` | 应用 Sol/Luna preset，并同步所有可用账号 |
+| `codex.sh config status` | 只读检查 preset 文件、受管字段和账号共享链接 |
 
 Session & routing
 
@@ -88,6 +92,19 @@ Session & routing
 - ChatGPT 套餐、模型权限、工作区权限和额度
 
 同步时遇到同名的本地配置会先创建 `.shared-backup*`，不会静默覆盖。
+
+## 可移植 Sol/Luna preset
+
+新设备只需 clone 仓库并运行 `./install.sh`。安装后 preset 自动生效；也可以随时运行：
+
+```bash
+codex.sh config apply
+codex.sh config status
+```
+
+受管字段固定为：主模型 `gpt-5.6-sol`、主推理强度 `medium`、默认子代理 `gpt-5.6-luna` / `medium`，以及 canonical `agents.luna-worker` 的描述和 `agents/luna-worker.toml`。受管 AGENTS 片段规定 Sol 负责分析、规划、拆解和验收；Luna 负责实现、修复和测试；只有 Luna 不可用时才回退 Terra。
+
+`config apply` 仅更新这些精确字段和受管标记，保留无关 TOML 表、设置与注释；它不会触碰 `auth.json` 或 `sessions`。对已有文件的备份写入路由器的 `backups/sol-luna-preset-<timestamp>` 目录。需要回滚时，先运行 `config status` 确认漂移，再从对应备份恢复目标共享文件并运行 `account sync-shared`；恢复后可再次运行 `config apply` 回到受管版本。
 
 ## 让直接运行 `codex` 使用某个账号
 

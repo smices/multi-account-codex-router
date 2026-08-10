@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
@@ -21,6 +22,18 @@ ROOT = Path.home() / ".codex-router"
 CONFIG = ROOT / "config.json"
 LOCK = ROOT / "config.lock"
 SHARED_HOME = ROOT / "shared"
+PRESET_DIR = Path(__file__).resolve().parent / "presets" / "sol-luna"
+PRESET_MARKER_START = "<!-- codex-router:sol-luna:start -->"
+PRESET_MARKER_END = "<!-- codex-router:sol-luna:end -->"
+TOML_MARKER = "# codex-router:sol-luna managed"
+PRESET_CONFIG_KEYS = (
+    "model",
+    "model_reasoning_effort",
+    "agents.default_subagent_model",
+    "agents.default_subagent_reasoning_effort",
+    "agents.luna-worker.description",
+    "agents.luna-worker.config_file",
+)
 
 
 class RouterError(Exception):
@@ -512,6 +525,260 @@ def sync_shared():
     return 0
 
 
+def _preset_text(name):
+    try:
+        return (PRESET_DIR / name).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RouterError(f"无法读取内置 Sol/Luna preset: {exc}") from exc
+
+
+def _preset_config_values():
+    try:
+        parsed = tomllib.loads(_preset_text("config.toml"))
+    except tomllib.TOMLDecodeError as exc:
+        raise RouterError(f"内置 Sol/Luna config.toml 无效: {exc}") from exc
+    values = {}
+    for dotted_key in PRESET_CONFIG_KEYS:
+        current = parsed
+        for component in dotted_key.split("."):
+            if not isinstance(current, dict) or component not in current:
+                raise RouterError(f"内置 Sol/Luna config.toml 缺少 {dotted_key}")
+            current = current[component]
+        if not isinstance(current, str):
+            raise RouterError(f"内置 Sol/Luna config.toml 的 {dotted_key} 必须为字符串")
+        values[dotted_key] = current
+    return values
+
+
+def _dotted_value(parsed, dotted_key):
+    current = parsed
+    for component in dotted_key.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(component)
+    return current
+
+
+def _backup_existing(path, backup_root):
+    if not path.exists():
+        return None
+    relative = path.relative_to(ROOT)
+    destination = backup_root / relative
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    shutil.copy2(path, destination)
+    return destination
+
+
+def _atomic_write(path, content, mode):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as temp_file:
+            temp_name = temp_file.name
+            temp_file.write(content)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+    except OSError as exc:
+        if temp_name:
+            try:
+                os.unlink(temp_name)
+            except OSError:
+                pass
+        raise RouterError(f"无法写入 {path}: {exc}") from exc
+
+
+def _toml_section(line):
+    match = re.match(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$", line)
+    return match.group(1).strip() if match else None
+
+
+def _toml_key(line):
+    match = re.match(r"^\s*([A-Za-z0-9_.-]+)\s*=", line)
+    return match.group(1) if match else None
+
+
+def _strip_preset_toml(content):
+    """Remove managed keys and lift legacy agents-table extras to root dots."""
+    output = []
+    legacy_extras = []
+    section = None
+    drop_managed_root_spacing = False
+    legacy_prefix = None
+    for line in content.splitlines(keepends=True):
+        if line.strip() == TOML_MARKER:
+            continue
+        header = _toml_section(line)
+        if header is not None:
+            section = header
+            drop_managed_root_spacing = False
+            legacy_prefix = header if header in {"agents", "agents.luna-worker"} else None
+            if legacy_prefix is None:
+                output.append(line)
+            continue
+        key = _toml_key(line)
+        if drop_managed_root_spacing and section is None and not line.strip():
+            continue
+        managed = (
+            (section is None and key in PRESET_CONFIG_KEYS)
+            or (section == "agents" and key in {
+                "default_subagent_model", "default_subagent_reasoning_effort"
+            })
+            or (section == "agents.luna-worker" and key in {
+                "description", "config_file"
+            })
+        )
+        if section is None and managed:
+            drop_managed_root_spacing = True
+        if managed:
+            continue
+        drop_managed_root_spacing = False
+        if legacy_prefix:
+            if key:
+                line = re.sub(
+                    r"^(\s*)[A-Za-z0-9_.-]+(\s*=)",
+                    rf"\1{legacy_prefix}.{key}\2",
+                    line,
+                    count=1,
+                )
+            legacy_extras.append(line)
+        else:
+            output.append(line)
+    while legacy_extras and not legacy_extras[0].strip():
+        legacy_extras.pop(0)
+    while legacy_extras and not legacy_extras[-1].strip():
+        legacy_extras.pop()
+    return output, legacy_extras
+
+
+def merge_sol_luna_config(content):
+    """Preserve unrelated TOML text while owning only the preset's exact keys."""
+    lines, legacy_extras = _strip_preset_toml(content)
+    values = _preset_config_values()
+    root_additions = [f"{TOML_MARKER}\n"]
+    root_additions.extend(
+        f"{key} = {json.dumps(values[key], ensure_ascii=False)}\n"
+        for key in PRESET_CONFIG_KEYS
+    )
+    root_additions.append("\n")
+    if legacy_extras:
+        root_additions.extend(legacy_extras)
+        if root_additions[-1].strip():
+            root_additions.append("\n")
+    first_table = next(
+        (index for index, line in enumerate(lines) if _toml_section(line) is not None),
+        len(lines),
+    )
+    lines = lines[:first_table] + root_additions + lines[first_table:]
+    merged = "".join(lines)
+    if not merged.endswith("\n"):
+        merged += "\n"
+    try:
+        parsed = tomllib.loads(merged)
+    except tomllib.TOMLDecodeError as exc:
+        raise RouterError(f"合并后的 config.toml 无效: {exc}") from exc
+    if any(_dotted_value(parsed, key) != value for key, value in values.items()):
+        raise RouterError("Sol/Luna preset 配置验证失败")
+    return merged
+
+
+def upsert_preset_agents(content):
+    managed = _preset_text("AGENTS.managed.md").rstrip() + "\n"
+    pattern = re.compile(
+        rf"{re.escape(PRESET_MARKER_START)}.*?{re.escape(PRESET_MARKER_END)}\s*",
+        re.DOTALL,
+    )
+    retained = pattern.sub("", content).rstrip()
+    return (retained + ("\n\n" if retained else "") + managed)
+
+
+def _preset_backup_root():
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    return ROOT / "backups" / f"sol-luna-preset-{stamp}"
+
+
+def apply_sol_luna_preset():
+    """Install shared managed files and synchronize every usable account."""
+    with config_lock():
+        ensure_shared_home()
+        config_path = SHARED_HOME / "config.toml"
+        agents_path = SHARED_HOME / "AGENTS.md"
+        worker_path = SHARED_HOME / "agents" / "luna-worker.toml"
+        desired = {
+            config_path: merge_sol_luna_config(
+                config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+            ),
+            agents_path: upsert_preset_agents(
+                agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
+            ),
+            worker_path: _preset_text("agents/luna-worker.toml"),
+        }
+        changed = [(path, text) for path, text in desired.items()
+                   if not path.exists() or path.read_text(encoding="utf-8") != text]
+        backup_root = _preset_backup_root() if any(path.exists() for path, _ in changed) else None
+        for path, text in changed:
+            if backup_root and path.exists():
+                backup = _backup_existing(path, backup_root)
+                print(f"已备份: {path.relative_to(ROOT)} -> {backup.relative_to(ROOT)}")
+            mode = 0o600 if path == config_path else 0o644
+            _atomic_write(path, text, mode)
+        if config_path.stat().st_mode & 0o077:
+            os.chmod(config_path, 0o600)
+        cfg = load_config()
+        for account in usable_accounts(cfg):
+            sync_shared_for_account(Path(account["home"]))
+    print("✅ Sol/Luna preset 已应用并同步共享配置")
+    return 0
+
+
+def sol_luna_preset_status():
+    """Read-only verification for the portable preset and usable-account links."""
+    problems = []
+    config_path = SHARED_HOME / "config.toml"
+    agents_path = SHARED_HOME / "AGENTS.md"
+    worker_path = SHARED_HOME / "agents" / "luna-worker.toml"
+    try:
+        merged = merge_sol_luna_config(config_path.read_text(encoding="utf-8"))
+        if config_path.read_text(encoding="utf-8") != merged:
+            problems.append("shared/config.toml 已漂移")
+    except (OSError, RouterError) as exc:
+        problems.append(f"shared/config.toml 缺失或无效: {exc}")
+    try:
+        if agents_path.read_text(encoding="utf-8") != upsert_preset_agents(agents_path.read_text(encoding="utf-8")):
+            problems.append("shared/AGENTS.md 已漂移")
+    except OSError:
+        problems.append("shared/AGENTS.md 缺失")
+    try:
+        if worker_path.read_text(encoding="utf-8") != _preset_text("agents/luna-worker.toml"):
+            problems.append("shared/agents/luna-worker.toml 已漂移")
+    except OSError:
+        problems.append("shared/agents/luna-worker.toml 缺失")
+    if CONFIG.exists():
+        try:
+            cfg = validate_config(json.loads(CONFIG.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError, RouterError) as exc:
+            problems.append(f"router config 缺失或无效: {exc}")
+            cfg = default_config()
+    else:
+        cfg = default_config()
+    for account in usable_accounts(cfg):
+        for item in ("config.toml", "AGENTS.md", "agents"):
+            account_item = Path(account["home"]) / item
+            shared_item = SHARED_HOME / item
+            if not account_item.is_symlink() or os.path.realpath(account_item) != os.path.realpath(shared_item):
+                problems.append(f"account-{account['id']}/{item} 未同步")
+    if problems:
+        for problem in problems:
+            print(f"❌ {problem}", file=sys.stderr)
+        return 1
+    print("✅ Sol/Luna preset 状态一致")
+    return 0
+
+
 def list_accounts():
     with config_lock():
         print_accounts(load_config())
@@ -750,6 +1017,10 @@ def parse_positive_int(value, label):
 
 
 def main(args):
+    if args == ["config", "apply"]:
+        return apply_sol_luna_preset()
+    if args == ["config", "status"]:
+        return sol_luna_preset_status()
     if args == ["login"]:
         return login_first()
     if args == ["login", "add"]:

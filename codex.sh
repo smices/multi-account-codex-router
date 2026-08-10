@@ -44,6 +44,10 @@ Account management
   account default <id>         设置直接运行 codex 时默认账号
   account retry <id>           重新登录指定账号
 
+Configuration
+  config apply                 应用可移植 Sol/Luna preset 并同步共享配置
+  config status                只读检查 Sol/Luna preset 与共享链接
+
 Session & routing
   resume <SESSION_ID>          恢复 Codex session
   status                       显示账号状态与实时额度
@@ -56,6 +60,8 @@ Examples
   codex.sh account rename 2 alias      修改账号 2 的名称
   codex.sh account sync-shared         同步共享配置
   codex.sh account default 3           将账号 3 设为默认
+  codex.sh config apply                应用 Sol/Luna preset
+  codex.sh config status               检查 Sol/Luna preset
   codex.sh status                      查看账号状态
   codex.sh resume <SESSION_ID>         按会话恢复
   codex.sh -a 2 resume <SESSION_ID>    强制用账号 2 恢复会话
@@ -179,6 +185,19 @@ elif (( ${#CODEX_ARGS[@]} == 1 )) && [[ "${CODEX_ARGS[0]}" == "account" ]]; then
   exit 0
 elif (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "login" ]]; then
   die 2 "已移除 login 子命令，请改用 account 代替"
+fi
+
+if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "config" ]]; then
+  if (( ${#CODEX_ARGS[@]} != 2 )) || [[ "${CODEX_ARGS[1]}" != "apply" && "${CODEX_ARGS[1]}" != "status" ]]; then
+    die 2 "config 仅支持 apply 或 status"
+  fi
+  if [[ -n "$ACCOUNT_ID" ]]; then
+    die 2 "-a 不能与管理命令一起使用"
+  fi
+  if [[ ! -x "$ROUTER_PYTHON" || ! -f "$ROUTER_SCRIPT" ]]; then
+    die 1 "路由器未安装或脚本不可读"
+  fi
+  exec "$ROUTER_PYTHON" "$ROUTER_SCRIPT" "${CODEX_ARGS[@]}"
 fi
 
 if [[ ! -x "$ROUTER_PYTHON" ]]; then
