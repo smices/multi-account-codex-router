@@ -30,6 +30,8 @@ PRESET_AGENT_NAMES = (
     "terra-explorer",
     "terra-docs",
 )
+PRESET_AGENT_FILES = (*PRESET_AGENT_NAMES, "luna-worker-high")
+PRESET_PROFILE_NAMES = ("efficient", "quality", "ultra")
 PRESET_CONFIG_KEYS = (
     "model",
     "model_reasoning_effort",
@@ -54,6 +56,9 @@ DEFAULT_SHARED_PATHS = (
     "CODEX_CAPABILITY_PROFILE.md",
     "computer-use",
     "config.toml",
+    "efficient.config.toml",
+    "quality.config.toml",
+    "ultra.config.toml",
     "models_cache.json",
     "plugins",
     "realtime-voice-continuity.json",
@@ -735,7 +740,12 @@ def apply_sol_luna_preset():
         desired.update({
             SHARED_HOME / "agents" / f"{name}.toml":
                 _preset_text(f"agents/{name}.toml")
-            for name in PRESET_AGENT_NAMES
+            for name in PRESET_AGENT_FILES
+        })
+        desired.update({
+            SHARED_HOME / f"{name}.config.toml":
+                _preset_text(f"{name}.config.toml")
+            for name in PRESET_PROFILE_NAMES
         })
         legacy_paths = [
             SHARED_HOME / item for item in LEGACY_SHARED_PATHS
@@ -797,13 +807,20 @@ def sol_luna_preset_status():
             problems.append("shared/RTK.md 已漂移")
     except OSError:
         problems.append("shared/RTK.md 缺失")
-    for name in PRESET_AGENT_NAMES:
+    for name in PRESET_AGENT_FILES:
         agent_path = SHARED_HOME / "agents" / f"{name}.toml"
         try:
             if agent_path.read_text(encoding="utf-8") != _preset_text(f"agents/{name}.toml"):
                 problems.append(f"shared/agents/{name}.toml 已漂移")
         except OSError:
             problems.append(f"shared/agents/{name}.toml 缺失")
+    for name in PRESET_PROFILE_NAMES:
+        profile_path = SHARED_HOME / f"{name}.config.toml"
+        try:
+            if profile_path.read_text(encoding="utf-8") != _preset_text(f"{name}.config.toml"):
+                problems.append(f"shared/{name}.config.toml 已漂移")
+        except OSError:
+            problems.append(f"shared/{name}.config.toml 缺失")
     if CONFIG.exists():
         try:
             cfg = validate_config(json.loads(CONFIG.read_text(encoding="utf-8")))
@@ -818,6 +835,7 @@ def sol_luna_preset_status():
     if default_home.is_dir():
         homes.append(("default", default_home))
     status_items = ["config.toml", "AGENTS.md", "agents"]
+    status_items.extend(f"{name}.config.toml" for name in PRESET_PROFILE_NAMES)
     status_items.extend(
         item for item in ("RTK.md", "skills", "plugins", "rules")
         if (SHARED_HOME / item).exists()

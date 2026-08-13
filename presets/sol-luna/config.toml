@@ -1,8 +1,8 @@
 # Portable Sol/Luna preset. Applied by: codex.sh config apply
 model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "max"
 agents.default_subagent_model = "gpt-5.6-luna"
-agents.default_subagent_reasoning_effort = "medium"
+agents.default_subagent_reasoning_effort = "xhigh"
 agents.luna-worker.description = "Implementation, bug-fix, and test worker; return ambiguity to Sol."
 agents.luna-worker.config_file = "agents/luna-worker.toml"
 agents.terra-worker.description = "Fallback implementation worker used only when Luna is unavailable."

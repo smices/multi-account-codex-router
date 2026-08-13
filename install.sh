@@ -102,7 +102,11 @@ for required in \
   "$PROJECT_DIR/presets/sol-luna/AGENTS.md" \
   "$PROJECT_DIR/presets/sol-luna/RTK.md" \
   "$PROJECT_DIR/presets/sol-luna/config.toml" \
+  "$PROJECT_DIR/presets/sol-luna/efficient.config.toml" \
+  "$PROJECT_DIR/presets/sol-luna/quality.config.toml" \
+  "$PROJECT_DIR/presets/sol-luna/ultra.config.toml" \
   "$PROJECT_DIR/presets/sol-luna/agents/luna-worker.toml" \
+  "$PROJECT_DIR/presets/sol-luna/agents/luna-worker-high.toml" \
   "$PROJECT_DIR/presets/sol-luna/agents/terra-worker.toml" \
   "$PROJECT_DIR/presets/sol-luna/agents/terra-explorer.toml" \
   "$PROJECT_DIR/presets/sol-luna/agents/terra-docs.toml"; do
@@ -125,7 +129,8 @@ fi
 
 PRESET_EXISTS=0
 for target in AGENTS.md RTK.md config.toml \
-  agents/luna-worker.toml agents/terra-worker.toml \
+  efficient.config.toml quality.config.toml ultra.config.toml \
+  agents/luna-worker.toml agents/luna-worker-high.toml agents/terra-worker.toml \
   agents/terra-explorer.toml agents/terra-docs.toml; do
   if [[ -e "$SHARED_HOME/$target" || -L "$SHARED_HOME/$target" ]]; then
     PRESET_EXISTS=1

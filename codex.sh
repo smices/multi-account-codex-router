@@ -48,6 +48,13 @@ Configuration
   config apply                 应用可移植 Sol/Luna preset 并同步共享配置
   config status                只读检查 Sol/Luna preset 与共享链接
 
+Reasoning profiles
+  -p efficient                  Sol high + Luna high，适合常规任务
+  -p quality                    Sol max + Luna xhigh，默认高质量模式
+  -p ultra                      Sol ultra 自动委派，适合大型可并行任务
+  不传 -p                      使用 quality 等价的共享默认配置
+  Luna 不可用                  自动回退 Terra xhigh
+
 Session & routing
   resume <SESSION_ID>          恢复 Codex session
   status                       显示账号状态与实时额度
@@ -62,6 +69,10 @@ Examples
   codex.sh account default 3           将账号 3 设为默认
   codex.sh config apply                应用 Sol/Luna preset
   codex.sh config status               检查 Sol/Luna preset
+  codex.sh -p efficient                使用高效模式启动 Codex
+  codex.sh -p quality                  使用高质量模式启动 Codex
+  codex.sh -p ultra                    使用 Ultra 自动委派模式启动 Codex
+  codex.sh -a 2 -p quality             指定账号并使用高质量模式
   codex.sh status                      查看账号状态
   codex.sh resume <SESSION_ID>         按会话恢复
   codex.sh -a 2 resume <SESSION_ID>    强制用账号 2 恢复会话

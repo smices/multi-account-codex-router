@@ -57,6 +57,9 @@ Account management
 | `codex.sh account sync-shared` | 同步共享配置 |
 | `codex.sh config apply` | 应用 Sol/Luna preset，并同步所有可用账号 |
 | `codex.sh config status` | 只读检查 preset 文件、受管字段和账号共享链接 |
+| `codex.sh -p efficient` | 高效模式：Sol high + Luna high |
+| `codex.sh -p quality` | 高质量模式：Sol max + Luna xhigh |
+| `codex.sh -p ultra` | Ultra 模式：Sol ultra 自动委派 + Luna xhigh |
 
 Session & routing
 
@@ -102,7 +105,7 @@ codex.sh config apply
 codex.sh config status
 ```
 
-仓库随附完整的 `AGENTS.md`、`RTK.md`、模型配置和四个 Agent 定义：`luna-worker`、仅在 Luna 不可用时接管实现的 `terra-worker`、只读的 `terra-explorer` 与 `terra-docs`。安装器会检查 Codex CLI、Python 3.11+ 和正确的 RTK Token Killer；Codex 或 RTK 缺失时会提示是否使用各自官方安装器自动安装，默认选择安装。非交互环境必须显式使用 `--force` 才会自动安装缺失组件。
+仓库随附完整的 `AGENTS.md`、`RTK.md`、三个推理 Profile、模型配置和四个 Agent 定义：`luna-worker`、仅在 Luna 不可用时接管实现的 `terra-worker`、只读的 `terra-explorer` 与 `terra-docs`。安装器会检查 Codex CLI、Python 3.11+ 和正确的 RTK Token Killer；Codex 或 RTK 缺失时会提示是否使用各自官方安装器自动安装，默认选择安装。非交互环境必须显式使用 `--force` 才会自动安装缺失组件。
 
 检测到已有共享 preset 或 launcher 时会分别询问是否覆盖，默认回车跳过。需要先备份再强制覆盖时运行：
 
@@ -112,7 +115,17 @@ codex.sh config status
 
 既有 `config.toml` 中非受管的 MCP、插件和其他设置会保留，现有 Skills、plugins 和 rules 目录也不会被清空。
 
-受管字段固定为：主模型 `gpt-5.6-sol`、主推理强度 `medium`、默认子代理 `gpt-5.6-luna` / `medium`，以及四个 canonical Agent 的描述和 TOML 文件。`presets/sol-luna/AGENTS.md` 是完整共享指令的仓库源文件，覆盖按需加载 Skills/MCP/RTK、输出压缩、重试与等待熔断，以及 Sol/Luna/Terra 调度。
+默认受管字段固定为：主模型 `gpt-5.6-sol` / `max`、默认子代理 `gpt-5.6-luna` / `xhigh`、Luna 不可用时的 `gpt-5.6-terra` / `xhigh`，以及四个 canonical Agent 的描述和 TOML 文件。`presets/sol-luna/AGENTS.md` 是完整共享指令的仓库源文件，覆盖按需加载 Skills/MCP/RTK、输出压缩、重试与等待熔断，以及 Sol/Luna/Terra 调度。
+
+模式通过 Codex 原生 Profile 在启动时选择，不改写共享默认配置：
+
+```bash
+codex.sh -p efficient  # Sol high + Luna high，常规任务
+codex.sh -p quality    # Sol max + Luna xhigh，默认高质量模式
+codex.sh -p ultra      # Sol ultra 自动委派，大型可并行任务
+```
+
+不传 `-p` 时与 `quality` 相同。Luna 不可用或模型无法使用时，`terra-worker` 按 AGENTS 策略以 Terra xhigh 自动补偿。安全或高风险任务默认使用 `quality`；只有能拆成互不重叠所有权的并行任务才使用 `ultra`。
 
 `config apply` 仅更新这些精确 TOML 字段，并用仓库 preset 同步完整共享 `AGENTS.md`、`RTK.md` 和 Agent TOML；它不会触碰 `auth.json` 或 `sessions`。旧的 `SOUL.md` 和 `sub.AGENTS.md` 会先归档到 `backups/sol-luna-preset-<timestamp>`，再从共享加载链移除。对已有受管文件的备份也写入同一目录。需要回滚时，先运行 `config status` 确认漂移，再从对应备份恢复目标共享文件并运行 `account sync-shared`；恢复后可再次运行 `config apply` 回到受管版本。
 

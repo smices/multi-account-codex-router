@@ -1,0 +1,6 @@
+# Efficient mode: routine work with strong execution and bounded reasoning cost.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+agents.default_subagent_model = "gpt-5.6-luna"
+agents.default_subagent_reasoning_effort = "high"
+agents.luna-worker.config_file = "agents/luna-worker-high.toml"

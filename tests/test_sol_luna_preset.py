@@ -91,9 +91,9 @@ class SolLunaPresetTests(unittest.TestCase):
         self.assertEqual(config.read_bytes(), first)
         text = first.decode()
         self.assertEqual(text.count('model = "gpt-5.6-sol"'), 1)
-        self.assertEqual(text.count('model_reasoning_effort = "medium"'), 1)
+        self.assertEqual(text.count('model_reasoning_effort = "max"'), 1)
         self.assertEqual(text.count('default_subagent_model = "gpt-5.6-luna"'), 1)
-        self.assertEqual(text.count('default_subagent_reasoning_effort = "medium"'), 1)
+        self.assertEqual(text.count('default_subagent_reasoning_effort = "xhigh"'), 1)
         self.assertEqual(text.count('config_file = "agents/luna-worker.toml"'), 1)
 
     def test_merges_current_dotted_shape_without_duplicate_tables(self):
@@ -121,6 +121,25 @@ class SolLunaPresetTests(unittest.TestCase):
         preset = router.tomllib.loads((PROJECT / "presets/sol-luna/config.toml").read_text())
         for key in router.PRESET_CONFIG_KEYS:
             self.assertEqual(router._dotted_value(parsed, key), router._dotted_value(preset, key))
+
+    def test_installs_switchable_reasoning_profiles(self):
+        self.write_accounts((1, 2))
+        self.default_home.mkdir(parents=True)
+        self.apply()
+
+        expected = {
+            "efficient": ("high", "high", "agents/luna-worker-high.toml"),
+            "quality": ("max", "xhigh", "agents/luna-worker.toml"),
+            "ultra": ("ultra", "xhigh", "agents/luna-worker.toml"),
+        }
+        for name, values in expected.items():
+            shared = router.SHARED_HOME / f"{name}.config.toml"
+            profile = router.tomllib.loads(shared.read_text())
+            self.assertEqual(profile["model_reasoning_effort"], values[0])
+            self.assertEqual(profile["agents"]["default_subagent_reasoning_effort"], values[1])
+            self.assertEqual(profile["agents"]["luna-worker"]["config_file"], values[2])
+            for home in (self.default_home, router.account_home(1), router.account_home(2)):
+                self.assertTrue((home / f"{name}.config.toml").is_symlink())
 
     def test_preserves_unmanaged_legacy_agent_table_keys(self):
         self.write_accounts()
@@ -174,8 +193,10 @@ class SolLunaPresetTests(unittest.TestCase):
         for relative in (
             "README.md", "presets/sol-luna/config.toml",
             "presets/sol-luna/AGENTS.md", "presets/sol-luna/RTK.md",
+            *(f"presets/sol-luna/{name}.config.toml"
+              for name in router.PRESET_PROFILE_NAMES),
             *(f"presets/sol-luna/agents/{name}.toml"
-              for name in router.PRESET_AGENT_NAMES),
+              for name in router.PRESET_AGENT_FILES),
         ):
             text = (PROJECT / relative).read_text(encoding="utf-8")
             self.assertNotIn("/" + "Users/", text)
