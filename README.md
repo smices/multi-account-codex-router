@@ -82,7 +82,7 @@ Session & routing
 以下内容位于 `~/.codex-router/shared`，每个账号通过软链接使用同一份：
 
 - `skills`、`agents`、`plugins`、`rules`
-- `AGENTS.md`、`SOUL.md` 与其他人格或能力配置
+- `AGENTS.md` 与按需读取的 `RTK.md`
 - `config.toml` 与相关本地设置
 
 以下内容保持在各自账号目录中，绝不共享：
@@ -102,9 +102,19 @@ codex.sh config apply
 codex.sh config status
 ```
 
-受管字段固定为：主模型 `gpt-5.6-sol`、主推理强度 `medium`、默认子代理 `gpt-5.6-luna` / `medium`，以及 canonical `agents.luna-worker` 的描述和 `agents/luna-worker.toml`。受管 AGENTS 片段规定 Sol 负责分析、规划、拆解和验收；Luna 负责实现、修复和测试；只有 Luna 不可用时才回退 Terra。
+仓库随附完整的 `AGENTS.md`、`RTK.md`、模型配置和四个 Agent 定义：`luna-worker`、仅在 Luna 不可用时接管实现的 `terra-worker`、只读的 `terra-explorer` 与 `terra-docs`。安装器会检查 Codex CLI、Python 3.11+ 和正确的 RTK Token Killer；Codex 或 RTK 缺失时会提示是否使用各自官方安装器自动安装，默认选择安装。非交互环境必须显式使用 `--force` 才会自动安装缺失组件。
 
-`config apply` 仅更新这些精确字段和受管标记，保留无关 TOML 表、设置与注释；它不会触碰 `auth.json` 或 `sessions`。对已有文件的备份写入路由器的 `backups/sol-luna-preset-<timestamp>` 目录。需要回滚时，先运行 `config status` 确认漂移，再从对应备份恢复目标共享文件并运行 `account sync-shared`；恢复后可再次运行 `config apply` 回到受管版本。
+检测到已有共享 preset 或 launcher 时会分别询问是否覆盖，默认回车跳过。需要先备份再强制覆盖时运行：
+
+```bash
+./install.sh --force
+```
+
+既有 `config.toml` 中非受管的 MCP、插件和其他设置会保留，现有 Skills、plugins 和 rules 目录也不会被清空。
+
+受管字段固定为：主模型 `gpt-5.6-sol`、主推理强度 `medium`、默认子代理 `gpt-5.6-luna` / `medium`，以及四个 canonical Agent 的描述和 TOML 文件。`presets/sol-luna/AGENTS.md` 是完整共享指令的仓库源文件，覆盖按需加载 Skills/MCP/RTK、输出压缩、重试与等待熔断，以及 Sol/Luna/Terra 调度。
+
+`config apply` 仅更新这些精确 TOML 字段，并用仓库 preset 同步完整共享 `AGENTS.md`、`RTK.md` 和 Agent TOML；它不会触碰 `auth.json` 或 `sessions`。旧的 `SOUL.md` 和 `sub.AGENTS.md` 会先归档到 `backups/sol-luna-preset-<timestamp>`，再从共享加载链移除。对已有受管文件的备份也写入同一目录。需要回滚时，先运行 `config status` 确认漂移，再从对应备份恢复目标共享文件并运行 `account sync-shared`；恢复后可再次运行 `config apply` 回到受管版本。
 
 ## 让直接运行 `codex` 使用某个账号
 

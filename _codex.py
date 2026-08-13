@@ -23,16 +23,20 @@ CONFIG = ROOT / "config.json"
 LOCK = ROOT / "config.lock"
 SHARED_HOME = ROOT / "shared"
 PRESET_DIR = Path(__file__).resolve().parent / "presets" / "sol-luna"
-PRESET_MARKER_START = "<!-- codex-router:sol-luna:start -->"
-PRESET_MARKER_END = "<!-- codex-router:sol-luna:end -->"
 TOML_MARKER = "# codex-router:sol-luna managed"
+PRESET_AGENT_NAMES = (
+    "luna-worker",
+    "terra-worker",
+    "terra-explorer",
+    "terra-docs",
+)
 PRESET_CONFIG_KEYS = (
     "model",
     "model_reasoning_effort",
     "agents.default_subagent_model",
     "agents.default_subagent_reasoning_effort",
-    "agents.luna-worker.description",
-    "agents.luna-worker.config_file",
+    *(f"agents.{name}.{key}" for name in PRESET_AGENT_NAMES
+      for key in ("description", "config_file")),
 )
 
 
@@ -47,21 +51,24 @@ DEFAULT_SHARED_PATHS = (
     "ambient-suggestions",
     "agents",
     "browser",
-    "chrome-native-hosts-v2.json",
     "CODEX_CAPABILITY_PROFILE.md",
     "computer-use",
     "config.toml",
     "models_cache.json",
     "plugins",
     "realtime-voice-continuity.json",
+    "RTK.md",
     "rules",
-    "SOUL.md",
     "skills",
-    "sub.AGENTS.md",
     "vendor_imports",
     "visualizations",
 )
 SHARED_ITEMS = tuple(DEFAULT_SHARED_PATHS)
+LEGACY_SHARED_PATHS = (
+    "SOUL.md",
+    "sub.AGENTS.md",
+    "chrome-native-hosts-v2.json",
+)
 
 
 def validate_shared_item(item):
@@ -231,6 +238,17 @@ def _safe_replace_with_symlink(account_item: Path, shared_item: Path):
     os.symlink(str(shared_item), str(account_item))
 
 
+def _remove_legacy_shared_links(account_home: Path):
+    for item in LEGACY_SHARED_PATHS:
+        account_item = account_home / item
+        shared_item = SHARED_HOME / item
+        if (
+            account_item.is_symlink()
+            and os.path.realpath(account_item) == os.path.realpath(shared_item)
+        ):
+            account_item.unlink()
+
+
 def sync_shared_for_account(account_home):
     if shared_disabled():
         return
@@ -240,6 +258,7 @@ def sync_shared_for_account(account_home):
     if not account_home.is_dir():
         raise RouterError(f"账号目录不存在: {account_home}")
 
+    _remove_legacy_shared_links(account_home)
     for item in shared_items():
         account_item = account_home / item
         shared_item = SHARED_HOME / item
@@ -606,6 +625,9 @@ def _strip_preset_toml(content):
     """Remove managed keys and lift legacy agents-table extras to root dots."""
     output = []
     legacy_extras = []
+    managed_agent_sections = {
+        f"agents.{name}" for name in PRESET_AGENT_NAMES
+    }
     section = None
     drop_managed_root_spacing = False
     legacy_prefix = None
@@ -616,7 +638,10 @@ def _strip_preset_toml(content):
         if header is not None:
             section = header
             drop_managed_root_spacing = False
-            legacy_prefix = header if header in {"agents", "agents.luna-worker"} else None
+            legacy_prefix = (
+                header if header == "agents" or header in managed_agent_sections
+                else None
+            )
             if legacy_prefix is None:
                 output.append(line)
             continue
@@ -628,7 +653,7 @@ def _strip_preset_toml(content):
             or (section == "agents" and key in {
                 "default_subagent_model", "default_subagent_reasoning_effort"
             })
-            or (section == "agents.luna-worker" and key in {
+            or (section in managed_agent_sections and key in {
                 "description", "config_file"
             })
         )
@@ -686,16 +711,6 @@ def merge_sol_luna_config(content):
     return merged
 
 
-def upsert_preset_agents(content):
-    managed = _preset_text("AGENTS.managed.md").rstrip() + "\n"
-    pattern = re.compile(
-        rf"{re.escape(PRESET_MARKER_START)}.*?{re.escape(PRESET_MARKER_END)}\s*",
-        re.DOTALL,
-    )
-    retained = pattern.sub("", content).rstrip()
-    return (retained + ("\n\n" if retained else "") + managed)
-
-
 def _preset_backup_root():
     stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
     return ROOT / "backups" / f"sol-luna-preset-{stamp}"
@@ -705,30 +720,51 @@ def apply_sol_luna_preset():
     """Install shared managed files and synchronize every usable account."""
     with config_lock():
         ensure_shared_home()
+        for directory in ("agents", "skills", "plugins", "rules"):
+            (SHARED_HOME / directory).mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path = SHARED_HOME / "config.toml"
         agents_path = SHARED_HOME / "AGENTS.md"
-        worker_path = SHARED_HOME / "agents" / "luna-worker.toml"
+        rtk_path = SHARED_HOME / "RTK.md"
         desired = {
             config_path: merge_sol_luna_config(
                 config_path.read_text(encoding="utf-8") if config_path.exists() else ""
             ),
-            agents_path: upsert_preset_agents(
-                agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
-            ),
-            worker_path: _preset_text("agents/luna-worker.toml"),
+            agents_path: _preset_text("AGENTS.md"),
+            rtk_path: _preset_text("RTK.md"),
         }
+        desired.update({
+            SHARED_HOME / "agents" / f"{name}.toml":
+                _preset_text(f"agents/{name}.toml")
+            for name in PRESET_AGENT_NAMES
+        })
+        legacy_paths = [
+            SHARED_HOME / item for item in LEGACY_SHARED_PATHS
+            if (SHARED_HOME / item).exists() or (SHARED_HOME / item).is_symlink()
+        ]
+        for path in legacy_paths:
+            if path.is_dir() and not path.is_symlink():
+                raise RouterError(f"旧共享配置应为文件，无法自动归档: {path.name}")
         changed = [(path, text) for path, text in desired.items()
                    if not path.exists() or path.read_text(encoding="utf-8") != text]
-        backup_root = _preset_backup_root() if any(path.exists() for path, _ in changed) else None
+        needs_backup = any(path.exists() for path, _ in changed) or bool(legacy_paths)
+        backup_root = _preset_backup_root() if needs_backup else None
         for path, text in changed:
             if backup_root and path.exists():
                 backup = _backup_existing(path, backup_root)
                 print(f"已备份: {path.relative_to(ROOT)} -> {backup.relative_to(ROOT)}")
             mode = 0o600 if path == config_path else 0o644
             _atomic_write(path, text, mode)
+        for path in legacy_paths:
+            if backup_root and path.exists():
+                backup = _backup_existing(path, backup_root)
+                print(f"已归档: {path.relative_to(ROOT)} -> {backup.relative_to(ROOT)}")
+            path.unlink()
         if config_path.stat().st_mode & 0o077:
             os.chmod(config_path, 0o600)
         cfg = load_config()
+        default_home = default_codex_home()
+        if default_home.is_dir():
+            sync_shared_for_account(default_home)
         for account in usable_accounts(cfg):
             sync_shared_for_account(Path(account["home"]))
     print("✅ Sol/Luna preset 已应用并同步共享配置")
@@ -740,7 +776,11 @@ def sol_luna_preset_status():
     problems = []
     config_path = SHARED_HOME / "config.toml"
     agents_path = SHARED_HOME / "AGENTS.md"
-    worker_path = SHARED_HOME / "agents" / "luna-worker.toml"
+    rtk_path = SHARED_HOME / "RTK.md"
+    for item in LEGACY_SHARED_PATHS:
+        path = SHARED_HOME / item
+        if path.exists() or path.is_symlink():
+            problems.append(f"shared/{item} 仍在旧共享加载链")
     try:
         merged = merge_sol_luna_config(config_path.read_text(encoding="utf-8"))
         if config_path.read_text(encoding="utf-8") != merged:
@@ -748,15 +788,22 @@ def sol_luna_preset_status():
     except (OSError, RouterError) as exc:
         problems.append(f"shared/config.toml 缺失或无效: {exc}")
     try:
-        if agents_path.read_text(encoding="utf-8") != upsert_preset_agents(agents_path.read_text(encoding="utf-8")):
+        if agents_path.read_text(encoding="utf-8") != _preset_text("AGENTS.md"):
             problems.append("shared/AGENTS.md 已漂移")
     except OSError:
         problems.append("shared/AGENTS.md 缺失")
     try:
-        if worker_path.read_text(encoding="utf-8") != _preset_text("agents/luna-worker.toml"):
-            problems.append("shared/agents/luna-worker.toml 已漂移")
+        if rtk_path.read_text(encoding="utf-8") != _preset_text("RTK.md"):
+            problems.append("shared/RTK.md 已漂移")
     except OSError:
-        problems.append("shared/agents/luna-worker.toml 缺失")
+        problems.append("shared/RTK.md 缺失")
+    for name in PRESET_AGENT_NAMES:
+        agent_path = SHARED_HOME / "agents" / f"{name}.toml"
+        try:
+            if agent_path.read_text(encoding="utf-8") != _preset_text(f"agents/{name}.toml"):
+                problems.append(f"shared/agents/{name}.toml 已漂移")
+        except OSError:
+            problems.append(f"shared/agents/{name}.toml 缺失")
     if CONFIG.exists():
         try:
             cfg = validate_config(json.loads(CONFIG.read_text(encoding="utf-8")))
@@ -765,12 +812,29 @@ def sol_luna_preset_status():
             cfg = default_config()
     else:
         cfg = default_config()
-    for account in usable_accounts(cfg):
-        for item in ("config.toml", "AGENTS.md", "agents"):
-            account_item = Path(account["home"]) / item
+    homes = [(f"account-{account['id']}", Path(account["home"]))
+             for account in usable_accounts(cfg)]
+    default_home = default_codex_home()
+    if default_home.is_dir():
+        homes.append(("default", default_home))
+    status_items = ["config.toml", "AGENTS.md", "agents"]
+    status_items.extend(
+        item for item in ("RTK.md", "skills", "plugins", "rules")
+        if (SHARED_HOME / item).exists()
+    )
+    for label, home in homes:
+        for item in status_items:
+            account_item = home / item
             shared_item = SHARED_HOME / item
             if not account_item.is_symlink() or os.path.realpath(account_item) != os.path.realpath(shared_item):
-                problems.append(f"account-{account['id']}/{item} 未同步")
+                problems.append(f"{label}/{item} 未同步")
+        for item in LEGACY_SHARED_PATHS:
+            account_item = home / item
+            if (
+                account_item.is_symlink()
+                and os.path.realpath(account_item) == os.path.realpath(SHARED_HOME / item)
+            ):
+                problems.append(f"{label}/{item} 仍链接旧共享配置")
     if problems:
         for problem in problems:
             print(f"❌ {problem}", file=sys.stderr)

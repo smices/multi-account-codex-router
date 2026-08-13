@@ -21,14 +21,22 @@ class SolLunaPresetTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name) / "router"
-        self.original = (router.ROOT, router.CONFIG, router.LOCK, router.SHARED_HOME)
+        self.original = (
+            router.ROOT, router.CONFIG, router.LOCK, router.SHARED_HOME,
+            router.default_codex_home,
+        )
         router.ROOT = self.root
         router.CONFIG = self.root / "config.json"
         router.LOCK = self.root / "config.lock"
         router.SHARED_HOME = self.root / "shared"
+        self.default_home = Path(self.temp.name) / ".codex"
+        router.default_codex_home = lambda: self.default_home
 
     def tearDown(self):
-        router.ROOT, router.CONFIG, router.LOCK, router.SHARED_HOME = self.original
+        (
+            router.ROOT, router.CONFIG, router.LOCK, router.SHARED_HOME,
+            router.default_codex_home,
+        ) = self.original
         self.temp.cleanup()
 
     def write_accounts(self, ids=()):
@@ -49,6 +57,10 @@ class SolLunaPresetTests(unittest.TestCase):
         self.assertEqual(self.apply(), 0)
         config = router.SHARED_HOME / "config.toml"
         self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
+        self.assertEqual(
+            (router.SHARED_HOME / "AGENTS.md").read_text(),
+            (PROJECT / "presets/sol-luna/AGENTS.md").read_text(),
+        )
         self.assertEqual(router.sol_luna_preset_status(), 0)
 
     def test_preserves_unrelated_toml_and_comments(self):
@@ -161,7 +173,9 @@ class SolLunaPresetTests(unittest.TestCase):
         self.assertNotIn(str(router.ROOT), output.getvalue())
         for relative in (
             "README.md", "presets/sol-luna/config.toml",
-            "presets/sol-luna/AGENTS.managed.md", "presets/sol-luna/agents/luna-worker.toml",
+            "presets/sol-luna/AGENTS.md", "presets/sol-luna/RTK.md",
+            *(f"presets/sol-luna/agents/{name}.toml"
+              for name in router.PRESET_AGENT_NAMES),
         ):
             text = (PROJECT / relative).read_text(encoding="utf-8")
             self.assertNotIn("/" + "Users/", text)
@@ -177,6 +191,9 @@ class SolLunaPresetTests(unittest.TestCase):
         self.assertLess(apply, launcher)
         self.assertIn("Python 3.11", readme)
         self.assertIn("tomllib", readme)
+        self.assertIn("--force", installer)
+        self.assertIn("[y/N]", installer)
+        self.assertIn("[Y/n]", installer)
 
     def test_apply_syncs_every_usable_account_with_symlinks(self):
         self.write_accounts((1, 2))
@@ -187,6 +204,39 @@ class SolLunaPresetTests(unittest.TestCase):
                 target = home / item
                 self.assertTrue(target.is_symlink())
                 self.assertEqual(os.path.realpath(target), os.path.realpath(router.SHARED_HOME / item))
+        self.assertEqual(router.sol_luna_preset_status(), 0)
+
+    def test_apply_migrates_rtk_and_removes_legacy_shared_instructions(self):
+        self.write_accounts((1, 2))
+        router.SHARED_HOME.mkdir(parents=True)
+        self.default_home.mkdir(parents=True)
+        (self.default_home / "RTK.md").write_text("rtk reference\n")
+        for item in router.LEGACY_SHARED_PATHS:
+            shared = router.SHARED_HOME / item
+            shared.write_text(f"legacy {item}\n")
+            os.symlink(shared, self.default_home / item)
+            for account_id in (1, 2):
+                os.symlink(shared, router.account_home(account_id) / item)
+
+        self.apply()
+
+        self.assertEqual(
+            (router.SHARED_HOME / "RTK.md").read_text(),
+            (PROJECT / "presets/sol-luna/RTK.md").read_text(),
+        )
+        self.assertEqual(
+            (self.default_home / "RTK.md.shared-backup").read_text(),
+            "rtk reference\n",
+        )
+        for home in (self.default_home, router.account_home(1), router.account_home(2)):
+            self.assertTrue((home / "RTK.md").is_symlink())
+            for item in router.LEGACY_SHARED_PATHS:
+                self.assertFalse((home / item).exists())
+                self.assertFalse((home / item).is_symlink())
+        for item in router.LEGACY_SHARED_PATHS:
+            self.assertFalse((router.SHARED_HOME / item).exists())
+            backups = list((router.ROOT / "backups").rglob(item))
+            self.assertEqual(len(backups), 1)
         self.assertEqual(router.sol_luna_preset_status(), 0)
 
     def test_main_dispatch_and_shell_config_never_forwards_to_codex(self):
