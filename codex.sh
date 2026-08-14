@@ -256,7 +256,7 @@ fi
 ROUTE_MODE="rotate"
 if (( ACCOUNT_WAS_FORCED == 1 )); then
   ROUTE_MODE="forced"
-elif [[ "${CODEX_ARGS[0]}" == "resume" && -n "${CODEX_ARGS[1]:-}" ]]; then
+elif (( ${#CODEX_ARGS[@]} > 1 )) && [[ "${CODEX_ARGS[0]}" == "resume" ]]; then
   ROUTE_MODE="resume"
 else
   DEFAULT_AUTH="$HOME/.codex/auth.json"
