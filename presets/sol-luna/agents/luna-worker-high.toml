@@ -1,4 +1,4 @@
-name = "luna-worker"
+name = "luna-worker-high"
 description = "Efficient implementation, bug-fix, and focused-test worker; returns ambiguity to Sol."
 model = "gpt-5.6-luna"
 model_reasoning_effort = "high"
