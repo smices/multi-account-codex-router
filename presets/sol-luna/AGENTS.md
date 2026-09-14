@@ -101,7 +101,7 @@ Do not run graph discovery and filesystem-wide search for the same question unle
 - Use `terra-explorer` only for bounded read-only codebase discovery when delegation materially reduces main-thread context pollution.
 - Use `terra-docs` only for bounded read-only document extraction and handoff preparation.
 - If `luna-worker` is unavailable or its model cannot be used, delegate bounded implementation to `terra-worker` and disclose the fallback in the final result.
-- When selecting any configured custom agent type, set `fork_context=false`; a full-history fork inherits the parent agent type and cannot select `luna-worker` or a Terra role.
+- When selecting any configured custom agent type, set `fork_turns="none"`; a full-history fork inherits the parent agent type and cannot select `luna-worker` or a Terra role.
 - In `efficient` mode, keep routine work on Sol high and delegate bounded implementation to Luna high.
 - In the default `quality` mode, use Sol max for controlled planning and acceptance, Luna xhigh for difficult bounded execution, and Terra xhigh only as the Luna fallback.
 - When the active reasoning effort is `ultra`, let Codex perform automatic task delegation. Do not duplicate that orchestration with proactive manual delegation; add a named custom agent only for a missing role or a clearly independent ownership boundary.
