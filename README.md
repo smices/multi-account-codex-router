@@ -20,7 +20,7 @@ cd multi-account-codex-router
 - 将 `~/codex.sh` 链接到仓库中的启动脚本。
 - 如果 `~/codex.sh` 已存在且不是本仓库的链接，先备份为 `~/codex.sh.pre-router-backup.<timestamp>`。
 
-安装器会自动应用可移植的 Sol/Luna preset 到路由器的共享配置；只管理该 preset 声明的字段，已有的无关配置、认证和 session 会保留。每个被改动的既有共享文件都会在路由器备份目录中保存时间戳副本。
+安装器会自动应用可移植的 Astra/Sol/Luna preset 到路由器的共享配置；只管理该 preset 声明的字段，已有的无关配置、认证和 session 会保留。每个被改动的既有共享文件都会在路由器备份目录中保存时间戳副本。
 
 ## 首次启用
 
@@ -55,11 +55,11 @@ Account management
 | `codex.sh account default 3` | 设置账号 3 为默认账号 |
 | `codex.sh account rename 2 quota-account-b` | 设置账号 2 的本地名称 |
 | `codex.sh account sync-shared` | 同步共享配置 |
-| `codex.sh config apply` | 应用 Sol/Luna preset，并同步所有可用账号 |
+| `codex.sh config apply` | 应用 Astra/Sol/Luna preset，并同步所有可用账号 |
 | `codex.sh config status` | 只读检查 preset 文件、受管字段和账号共享链接 |
-| `codex.sh -p efficient` | 高效模式：Sol high + Luna high |
-| `codex.sh -p quality` | 高质量模式：Sol max + Luna xhigh |
-| `codex.sh -p ultra` | Ultra 模式：Sol ultra 自动委派 + Luna xhigh |
+| `codex.sh update` | 快进拉取路由器、安装并验证共享配置 |
+| `codex.sh -p efficient` | 高效模式：GPT-6.1 Sol low + GPT-6 Luna medium |
+| `codex.sh -p quality` | 高质量模式：GPT-6 Astra medium + GPT-6 Luna medium |
 
 Session & routing
 
@@ -78,7 +78,11 @@ Session & routing
 - `round-robin`：按轮询回退
 - `session`：使用 `resume` 对应的原账号
 
-`status` 会显示账号邮箱、套餐和实时额度窗口；查询期间会显示单行加载状态。无法读取额度通常表示认证失效，使用 `account retry <id>` 重新登录即可。
+`status` 会显示账号邮箱、套餐和实时额度窗口；查询期间会显示单行加载状态。`-a <id> status` 只查询指定账号。仅认证失效或未登录时提示 `account retry <id>`；超时、连接和协议失败应先检查对应错误，API key 登录可能不提供订阅额度。
+
+路由器选项 `-a`、`-q`、`-v` 放在 Codex 命令或参数之前；从第一个 Codex 参数开始，后续参数原样转发，例如 `codex.sh -a 2 exec --help` 和 `codex.sh -q exec -a never "任务"`。
+
+账号隔离和默认账号链接依赖各账号的 `auth.json`，因此路由器在登录、状态查询和启动 Codex 时指定 `cli_auth_credentials_store="file"`。管理员若强制其他认证存储策略，需要先解决策略冲突。
 
 ## 共享配置与隔离边界
 
@@ -96,7 +100,7 @@ Session & routing
 
 同步时遇到同名的本地配置会先创建 `.shared-backup*`，不会静默覆盖。
 
-## 可移植 Sol/Luna preset
+## 可移植 Astra/Sol/Luna preset
 
 新设备只需 clone 仓库并运行 `./install.sh`。安装后 preset 自动生效；也可以随时运行：
 
@@ -105,7 +109,7 @@ codex.sh config apply
 codex.sh config status
 ```
 
-仓库随附完整的 `AGENTS.md`、`RTK.md`、三个推理 Profile、模型配置和四个 Agent 定义：`luna-worker`、仅在 Luna 不可用时接管实现的 `terra-worker`、只读的 `terra-explorer` 与 `terra-docs`。安装器会检查 Codex CLI、Python 3.11+ 和正确的 RTK Token Killer；Codex 或 RTK 缺失时会提示是否使用各自官方安装器自动安装，默认选择安装。非交互环境必须显式使用 `--force` 才会自动安装缺失组件。
+仓库随附完整的 `AGENTS.md`、`RTK.md`、两个推理 Profile、模型配置和两个 Agent 定义：负责常规任务与 Luna 失败接管的 `sol-general`，以及负责边界清楚的实现与检查的 `luna-worker`。安装器会检查 Codex CLI、Python 3.11+ 和正确的 RTK Token Killer；Codex 或 RTK 缺失时会提示是否使用各自官方安装器自动安装，默认选择安装。非交互环境必须显式使用 `--force` 才会自动安装缺失组件。
 
 检测到已有共享 preset 或 launcher 时会分别询问是否覆盖，默认回车跳过。需要先备份再强制覆盖时运行：
 
@@ -115,19 +119,37 @@ codex.sh config status
 
 既有 `config.toml` 中非受管的 MCP、插件和其他设置会保留，现有 Skills、plugins 和 rules 目录也不会被清空。
 
-默认受管字段固定为：主模型 `gpt-5.6-sol` / `max`、默认子代理 `gpt-5.6-luna` / `xhigh`、Luna 不可用时的 `gpt-5.6-terra` / `xhigh`，以及四个 canonical Agent 的描述和 TOML 文件。`presets/sol-luna/AGENTS.md` 是完整共享指令的仓库源文件，覆盖按需加载 Skills/MCP/RTK、输出压缩、重试与等待熔断，以及 Sol/Luna/Terra 调度。
+默认受管字段固定为：主模型 `gpt-6-astra` / `medium`、默认子代理 `gpt-6-luna` / `medium`，以及 `luna-worker` 和 `sol-general` 的描述与 TOML 文件。`sol-general` 固定为 `gpt-6.1-sol` / `low`。`presets/sol-luna/AGENTS.md` 是完整共享指令的仓库源文件，覆盖按需加载 Skills/MCP/RTK、输出压缩、重试与等待熔断，以及 Astra/Sol/Luna 调度。
 
 模式通过 Codex 原生 Profile 在启动时选择，不改写共享默认配置：
 
 ```bash
-codex.sh -p efficient  # Sol high + Luna high，常规任务
-codex.sh -p quality    # Sol max + Luna xhigh，默认高质量模式
-codex.sh -p ultra      # Sol ultra 自动委派，大型可并行任务
+codex.sh -p efficient  # GPT-6.1 Sol low + GPT-6 Luna medium，常规任务
+codex.sh -p quality    # GPT-6 Astra medium + GPT-6 Luna medium，默认高质量模式
 ```
 
-不传 `-p` 时与 `quality` 相同。Luna 不可用或模型无法使用时，`terra-worker` 按 AGENTS 策略以 Terra xhigh 自动补偿。安全或高风险任务默认使用 `quality`；只有能拆成互不重叠所有权的并行任务才使用 `ultra`。
+不传 `-p` 时与 `quality` 相同。Luna 无法使用或经过两种不同尝试仍无实质进展时，由 `sol-general` 接管并回报 Astra。已移除 `ultra` profile；更新时会备份旧文件并移除其共享链接。推理档位按本机 Codex `model/list` 返回的默认值设置：Astra medium、Sol 6.1 low、Luna medium；未来模型默认值变动时需重新核验。
 
-`config apply` 仅更新这些精确 TOML 字段，并用仓库 preset 同步完整共享 `AGENTS.md`、`RTK.md` 和 Agent TOML；它不会触碰 `auth.json` 或 `sessions`。旧的 `SOUL.md` 和 `sub.AGENTS.md` 会先归档到 `backups/sol-luna-preset-<timestamp>`，再从共享加载链移除。对已有受管文件的备份也写入同一目录。需要回滚时，先运行 `config status` 确认漂移，再从对应备份恢复目标共享文件并运行 `account sync-shared`；恢复后可再次运行 `config apply` 回到受管版本。
+模型分工依据[官方模型说明](https://learn.chatgpt.com/docs/models)；认证存储与额度查询分别依据[官方认证文档](https://learn.chatgpt.com/docs/auth#credential-storage)和[app-server 协议](https://learn.chatgpt.com/docs/app-server)。模型和推理级别的实际可用性仍取决于账号与工作区授权。
+
+`config apply` 仅更新这些精确 TOML 字段，并用仓库 preset 同步完整共享 `AGENTS.md`、`RTK.md` 和 Agent TOML；它不会触碰 `auth.json` 或 `sessions`。旧的 `SOUL.md`、`sub.AGENTS.md` 和已退役的 Terra/Luna-high Agent 文件会先归档到 `backups/sol-luna-preset-<timestamp>`，再从共享加载链移除；已有受管文件也先备份。需要回滚时，先运行 `config status` 确认漂移，再从对应备份恢复目标共享文件并运行 `account sync-shared`；恢复后可再次运行 `config apply` 回到受管版本。
+
+## 更新其他电脑
+
+首次安装更新命令前，在各电脑的仓库目录运行：
+
+```bash
+git pull --ff-only
+./install.sh --force
+```
+
+以后使用：
+
+```bash
+~/codex.sh update
+```
+
+更新命令要求 Git 工作区干净且位于有 upstream 的分支，快进拉取后执行新版安装器并检查共享配置。已有受管配置会先备份，账号认证和 session 保留；本地修改或分支分叉时停止，由你处理后再更新。它更新路由器及其 preset，不升级已安装的 Codex CLI。代码发布到上游后，其他电脑才能拉取对应版本。
 
 ## 让直接运行 `codex` 使用某个账号
 

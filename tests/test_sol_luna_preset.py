@@ -90,10 +90,10 @@ class SolLunaPresetTests(unittest.TestCase):
         self.apply()
         self.assertEqual(config.read_bytes(), first)
         text = first.decode()
-        self.assertEqual(text.count('model = "gpt-5.6-sol"'), 1)
-        self.assertEqual(text.count('model_reasoning_effort = "max"'), 1)
-        self.assertEqual(text.count('default_subagent_model = "gpt-5.6-luna"'), 1)
-        self.assertEqual(text.count('default_subagent_reasoning_effort = "xhigh"'), 1)
+        self.assertEqual(text.count('model = "gpt-6-astra"'), 1)
+        self.assertEqual(text.count('model_reasoning_effort = "medium"'), 1)
+        self.assertEqual(text.count('default_subagent_model = "gpt-6-luna"'), 1)
+        self.assertEqual(text.count('default_subagent_reasoning_effort = "medium"'), 1)
         self.assertEqual(text.count('config_file = "agents/luna-worker.toml"'), 1)
 
     def test_merges_current_dotted_shape_without_duplicate_tables(self):
@@ -111,7 +111,7 @@ class SolLunaPresetTests(unittest.TestCase):
         self.apply()
         actual = config.read_text()
         parsed = router.tomllib.loads(actual)
-        self.assertEqual(parsed["agents"]["default_subagent_model"], "gpt-5.6-luna")
+        self.assertEqual(parsed["agents"]["default_subagent_model"], "gpt-6-luna")
         self.assertEqual(parsed["agents"]["luna-worker"]["config_file"], "agents/luna-worker.toml")
         self.assertIn('[personality]\nname = "preserved"', actual)
         self.assertIn('[mcp]\nenabled = true', actual)
@@ -128,16 +128,16 @@ class SolLunaPresetTests(unittest.TestCase):
         self.apply()
 
         expected = {
-            "efficient": ("high", "high", "agents/luna-worker-high.toml"),
-            "quality": ("max", "xhigh", "agents/luna-worker.toml"),
-            "ultra": ("ultra", "xhigh", "agents/luna-worker.toml"),
+            "efficient": ("gpt-6.1-sol", "low", "medium"),
+            "quality": ("gpt-6-astra", "medium", "medium"),
         }
         for name, values in expected.items():
             shared = router.SHARED_HOME / f"{name}.config.toml"
             profile = router.tomllib.loads(shared.read_text())
-            self.assertEqual(profile["model_reasoning_effort"], values[0])
-            self.assertEqual(profile["agents"]["default_subagent_reasoning_effort"], values[1])
-            self.assertEqual(profile["agents"]["luna-worker"]["config_file"], values[2])
+            self.assertEqual(profile["model"], values[0])
+            self.assertEqual(profile["model_reasoning_effort"], values[1])
+            self.assertEqual(profile["agents"]["default_subagent_reasoning_effort"], values[2])
+            self.assertEqual(profile["agents"]["luna-worker"]["config_file"], "agents/luna-worker.toml")
             for home in (self.default_home, router.account_home(1), router.account_home(2)):
                 self.assertTrue((home / f"{name}.config.toml").is_symlink())
 
@@ -157,6 +157,38 @@ class SolLunaPresetTests(unittest.TestCase):
         self.assertIn("agents.custom_limit = 3", actual)
         self.assertIn("agents.luna-worker.timeout_seconds = 30", actual)
 
+    def test_retires_old_terra_roles_and_files_without_touching_custom_roles(self):
+        self.write_accounts()
+        agents = router.SHARED_HOME / "agents"
+        agents.mkdir(parents=True)
+        config = router.SHARED_HOME / "config.toml"
+        config.write_text(
+            'agents.terra-worker.description = "old"\n'
+            'agents.terra-worker.config_file = "agents/terra-worker.toml"\n'
+            'agents.custom.description = "keep"\n\n'
+            '[agents.terra-explorer]\n'
+            'description = "old"\nconfig_file = "agents/terra-explorer.toml"\n'
+            'timeout_seconds = 30\n'
+        )
+        for name in router.RETIRED_PRESET_AGENT_FILES:
+            (agents / f"{name}.toml").write_text(f"retired {name}\n")
+        (agents / "custom.toml").write_text("custom\n")
+
+        self.apply()
+        first = config.read_bytes()
+        self.apply()
+        self.assertEqual(config.read_bytes(), first)
+        parsed = router.tomllib.loads(first.decode())
+        self.assertNotIn("terra-worker", parsed["agents"])
+        self.assertEqual(parsed["agents"]["terra-explorer"], {"timeout_seconds": 30})
+        self.assertEqual(parsed["agents"]["custom"]["description"], "keep")
+        self.assertEqual((agents / "custom.toml").read_text(), "custom\n")
+        for name in router.RETIRED_PRESET_AGENT_FILES:
+            self.assertFalse((agents / f"{name}.toml").exists())
+            backups = list((router.ROOT / "backups").rglob(f"{name}.toml"))
+            self.assertEqual(len(backups), 1)
+        self.assertEqual(router.sol_luna_preset_status(), 0)
+
     def test_existing_files_are_backed_up_once_when_changed(self):
         self.write_accounts()
         router.SHARED_HOME.mkdir(parents=True)
@@ -168,11 +200,31 @@ class SolLunaPresetTests(unittest.TestCase):
         self.apply()
         self.assertEqual(len(list((router.ROOT / "backups").rglob("config.toml"))), 1)
 
+    def test_ultra_alias_is_archived_and_removed_from_every_home(self):
+        self.write_accounts((1, 2))
+        router.SHARED_HOME.mkdir(parents=True)
+        old = router.SHARED_HOME / "ultra.config.toml"
+        old.write_text('model_reasoning_effort = "ultra"\n')
+        homes = [router.account_home(1), router.account_home(2), self.default_home]
+        for home in homes:
+            home.mkdir(exist_ok=True)
+            (home / old.name).symlink_to(old)
+        self.apply()
+        self.assertFalse(old.exists())
+        for home in homes:
+            self.assertFalse((home / old.name).is_symlink())
+        backups = list((router.ROOT / "backups").rglob(old.name))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), 'model_reasoning_effort = "ultra"\n')
+        self.apply()
+        self.assertEqual(len(list((router.ROOT / "backups").rglob(old.name))), 1)
+        self.assertEqual(router.sol_luna_preset_status(), 0)
+
     def test_status_detects_drift(self):
         self.write_accounts()
         self.apply()
         config = router.SHARED_HOME / "config.toml"
-        config.write_text(config.read_text().replace('gpt-5.6-sol', 'wrong-model', 1))
+        config.write_text(config.read_text().replace('gpt-6-astra', 'wrong-model', 1))
         with redirect_stderr(io.StringIO()):
             self.assertEqual(router.sol_luna_preset_status(), 1)
 

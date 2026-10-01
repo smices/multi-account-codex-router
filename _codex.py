@@ -26,12 +26,14 @@ PRESET_DIR = Path(__file__).resolve().parent / "presets" / "sol-luna"
 TOML_MARKER = "# codex-router:sol-luna managed"
 PRESET_AGENT_NAMES = (
     "luna-worker",
-    "terra-worker",
-    "terra-explorer",
-    "terra-docs",
+    "sol-general",
 )
-PRESET_AGENT_FILES = (*PRESET_AGENT_NAMES, "luna-worker-high")
-PRESET_PROFILE_NAMES = ("efficient", "quality", "ultra")
+PRESET_AGENT_FILES = PRESET_AGENT_NAMES
+RETIRED_PRESET_AGENT_NAMES = (
+    "terra-worker", "terra-explorer", "terra-docs",
+)
+RETIRED_PRESET_AGENT_FILES = (*RETIRED_PRESET_AGENT_NAMES, "luna-worker-high")
+PRESET_PROFILE_NAMES = ("efficient", "quality")
 PRESET_CONFIG_KEYS = (
     "model",
     "model_reasoning_effort",
@@ -58,7 +60,6 @@ DEFAULT_SHARED_PATHS = (
     "config.toml",
     "efficient.config.toml",
     "quality.config.toml",
-    "ultra.config.toml",
     "models_cache.json",
     "plugins",
     "realtime-voice-continuity.json",
@@ -70,6 +71,7 @@ DEFAULT_SHARED_PATHS = (
 )
 SHARED_ITEMS = tuple(DEFAULT_SHARED_PATHS)
 LEGACY_SHARED_PATHS = (
+    "ultra.config.toml",
     "SOUL.md",
     "sub.AGENTS.md",
     "chrome-native-hosts-v2.json",
@@ -314,9 +316,13 @@ def run_login(home):
     require_codex()
     env = os.environ.copy()
     env["CODEX_HOME"] = str(home)
-    return subprocess.run(
-        ["codex", "login", "--device-auth"], env=env, check=False
+    result = subprocess.run(
+        ["codex", "-c", 'cli_auth_credentials_store="file"', "login", "--device-auth"],
+        env=env, check=False,
     ).returncode
+    if result == 0 and not (Path(home) / "auth.json").is_file():
+        raise RouterError("登录结束但未生成文件认证；路由器需要 file 认证存储，请检查管理员认证策略")
+    return result
 
 
 def print_accounts(cfg):
@@ -332,7 +338,10 @@ def print_accounts(cfg):
             status += "; default"
         print(f'{account["id"]}: {account["name"]} [{status}]')
         print(f"    {home}")
-        print(f"    relogin: ~/codex.sh login retry {account['id']}")
+        if home.is_dir():
+            print(f"    relogin: ~/codex.sh account retry {account['id']}")
+        else:
+            print("    账号目录缺失，请先恢复目录")
 
 
 def login_first():
@@ -349,6 +358,8 @@ def login_first():
             bootstrap_login = True
         elif not source.is_dir():
             raise RouterError(f"默认 Codex 目录异常: {source} 不是目录")
+        elif not (source / "auth.json").is_file():
+            bootstrap_login = True
 
         if bootstrap_login:
             pass
@@ -375,7 +386,7 @@ def login_first():
             })
             save_config(cfg)
     if bootstrap_login:
-        print("未发现 ~/.codex，将创建 account-1 并开始设备登录...")
+        print("未发现可迁移的文件认证，将创建新账号并开始设备登录...")
         return login_add()
     login_set_default(1)
     print("✅ account-1 created")
@@ -398,7 +409,7 @@ def login_add():
         home = account_home(account_id)
         home.mkdir(mode=0o700, parents=True, exist_ok=False)
 
-    print(f"Add account {account_id}\n\nStarting:\n\ncodex login --device-auth\n")
+    print(f'Add account {account_id}\n\nStarting:\n\ncodex -c \'cli_auth_credentials_store="file"\' login --device-auth\n')
     result = run_login(home)
     if result != 0:
         print(f"❌ login failed\nDirectory removed:\n{home}", file=sys.stderr)
@@ -553,23 +564,23 @@ def _preset_text(name):
     try:
         return (PRESET_DIR / name).read_text(encoding="utf-8")
     except OSError as exc:
-        raise RouterError(f"无法读取内置 Sol/Luna preset: {exc}") from exc
+        raise RouterError(f"无法读取内置 Astra/Sol/Luna preset: {exc}") from exc
 
 
 def _preset_config_values():
     try:
         parsed = tomllib.loads(_preset_text("config.toml"))
     except tomllib.TOMLDecodeError as exc:
-        raise RouterError(f"内置 Sol/Luna config.toml 无效: {exc}") from exc
+        raise RouterError(f"内置 Astra/Sol/Luna config.toml 无效: {exc}") from exc
     values = {}
     for dotted_key in PRESET_CONFIG_KEYS:
         current = parsed
         for component in dotted_key.split("."):
             if not isinstance(current, dict) or component not in current:
-                raise RouterError(f"内置 Sol/Luna config.toml 缺少 {dotted_key}")
+                raise RouterError(f"内置 Astra/Sol/Luna config.toml 缺少 {dotted_key}")
             current = current[component]
         if not isinstance(current, str):
-            raise RouterError(f"内置 Sol/Luna config.toml 的 {dotted_key} 必须为字符串")
+            raise RouterError(f"内置 Astra/Sol/Luna config.toml 的 {dotted_key} 必须为字符串")
         values[dotted_key] = current
     return values
 
@@ -630,8 +641,11 @@ def _strip_preset_toml(content):
     """Remove managed keys and lift legacy agents-table extras to root dots."""
     output = []
     legacy_extras = []
-    managed_agent_sections = {
-        f"agents.{name}" for name in PRESET_AGENT_NAMES
+    managed_agent_names = (*PRESET_AGENT_NAMES, *RETIRED_PRESET_AGENT_NAMES)
+    managed_agent_sections = {f"agents.{name}" for name in managed_agent_names}
+    retired_keys = {
+        f"agents.{name}.{key}" for name in RETIRED_PRESET_AGENT_NAMES
+        for key in ("description", "config_file")
     }
     section = None
     drop_managed_root_spacing = False
@@ -654,7 +668,7 @@ def _strip_preset_toml(content):
         if drop_managed_root_spacing and section is None and not line.strip():
             continue
         managed = (
-            (section is None and key in PRESET_CONFIG_KEYS)
+            (section is None and (key in PRESET_CONFIG_KEYS or key in retired_keys))
             or (section == "agents" and key in {
                 "default_subagent_model", "default_subagent_reasoning_effort"
             })
@@ -695,15 +709,13 @@ def merge_sol_luna_config(content):
         for key in PRESET_CONFIG_KEYS
     )
     root_additions.append("\n")
-    if legacy_extras:
-        root_additions.extend(legacy_extras)
-        if root_additions[-1].strip():
-            root_additions.append("\n")
     first_table = next(
         (index for index, line in enumerate(lines) if _toml_section(line) is not None),
         len(lines),
     )
-    lines = lines[:first_table] + root_additions + lines[first_table:]
+    if legacy_extras and legacy_extras[-1].strip():
+        legacy_extras.append("\n")
+    lines = lines[:first_table] + legacy_extras + root_additions + lines[first_table:]
     merged = "".join(lines)
     if not merged.endswith("\n"):
         merged += "\n"
@@ -712,7 +724,7 @@ def merge_sol_luna_config(content):
     except tomllib.TOMLDecodeError as exc:
         raise RouterError(f"合并后的 config.toml 无效: {exc}") from exc
     if any(_dotted_value(parsed, key) != value for key, value in values.items()):
-        raise RouterError("Sol/Luna preset 配置验证失败")
+        raise RouterError("Astra/Sol/Luna preset 配置验证失败")
     return merged
 
 
@@ -751,6 +763,11 @@ def apply_sol_luna_preset():
             SHARED_HOME / item for item in LEGACY_SHARED_PATHS
             if (SHARED_HOME / item).exists() or (SHARED_HOME / item).is_symlink()
         ]
+        legacy_paths.extend(
+            path for name in RETIRED_PRESET_AGENT_FILES
+            if (path := SHARED_HOME / "agents" / f"{name}.toml").exists()
+            or path.is_symlink()
+        )
         for path in legacy_paths:
             if path.is_dir() and not path.is_symlink():
                 raise RouterError(f"旧共享配置应为文件，无法自动归档: {path.name}")
@@ -777,7 +794,7 @@ def apply_sol_luna_preset():
             sync_shared_for_account(default_home)
         for account in usable_accounts(cfg):
             sync_shared_for_account(Path(account["home"]))
-    print("✅ Sol/Luna preset 已应用并同步共享配置")
+    print("✅ Astra/Sol/Luna preset 已应用并同步共享配置")
     return 0
 
 
@@ -791,6 +808,10 @@ def sol_luna_preset_status():
         path = SHARED_HOME / item
         if path.exists() or path.is_symlink():
             problems.append(f"shared/{item} 仍在旧共享加载链")
+    for name in RETIRED_PRESET_AGENT_FILES:
+        path = SHARED_HOME / "agents" / f"{name}.toml"
+        if path.exists() or path.is_symlink():
+            problems.append(f"shared/agents/{name}.toml 仍在旧共享加载链")
     try:
         merged = merge_sol_luna_config(config_path.read_text(encoding="utf-8"))
         if config_path.read_text(encoding="utf-8") != merged:
@@ -857,7 +878,7 @@ def sol_luna_preset_status():
         for problem in problems:
             print(f"❌ {problem}", file=sys.stderr)
         return 1
-    print("✅ Sol/Luna preset 状态一致")
+    print("✅ Astra/Sol/Luna preset 状态一致")
     return 0
 
 
@@ -868,67 +889,107 @@ def list_accounts():
 
 
 def app_server_request(home):
-    requests = (
-        {"method": "initialize", "id": 1, "params": {
-            "clientInfo": {"name": "codex-router", "version": "1.0"}
-        }},
-        {"method": "initialized", "params": {}},
-        {"method": "account/read", "id": 2, "params": {"refreshToken": False}},
-        {"method": "account/rateLimits/read", "id": 3, "params": {}},
-    )
     env = os.environ.copy()
     env["CODEX_HOME"] = str(home)
     try:
         process = subprocess.Popen(
-            ["codex", "app-server"],
+            ["codex", "app-server", "-c", 'cli_auth_credentials_store="file"'],
             stdin=subprocess.PIPE,
-            text=True,
+            bufsize=0,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             env=env,
-            bufsize=1,
         )
     except OSError:
         return None, "无法启动额度服务"
 
     responses = {}
-    try:
-        for request in requests:
-            process.stdin.write(json.dumps(request) + "\n")
+    output = bytearray()
+
+    def send(request):
+        process.stdin.write((json.dumps(request) + "\n").encode())
         process.stdin.flush()
 
-        deadline = time.monotonic() + 20
-        while {2, 3} - responses.keys():
+    def read_responses(wanted, deadline):
+        while wanted - responses.keys():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return None, "读取超时"
+                return "读取超时"
             ready, _, _ = select.select([process.stdout], [], [], remaining)
             if not ready:
-                return None, "读取超时"
-            line = process.stdout.readline()
-            if not line:
-                return None, "无法读取，请重新登录"
-            try:
-                message = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            message_id = message.get("id")
-            if message_id in {2, 3}:
-                responses[message_id] = message
+                return "读取超时"
+            chunk = os.read(process.stdout.fileno(), 4096)
+            if not chunk:
+                return "服务端已关闭连接"
+            output.extend(chunk)
+            while b"\n" in output:
+                line, _, rest = output.partition(b"\n")
+                output[:] = rest
+                try:
+                    message = json.loads(line)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if isinstance(message, dict) and message.get("id") in wanted:
+                    responses[message["id"]] = message
+        return None
+
+    try:
+        deadline = time.monotonic() + 20
+        send({"method": "initialize", "id": 1, "params": {
+            "clientInfo": {"name": "codex-router", "version": "1.0"}
+        }})
+        error = read_responses({1}, deadline)
+        if error:
+            return None, error
+        if "error" in responses[1]:
+            return None, "额度服务初始化失败"
+
+        for request in (
+            {"method": "initialized", "params": {}},
+            {"method": "account/read", "id": 2, "params": {"refreshToken": False}},
+            {"method": "account/rateLimits/read", "id": 3, "params": {}},
+        ):
+            send(request)
+        error = read_responses({2, 3}, deadline)
+        if error:
+            return None, error
+    except OSError:
+        return None, "额度服务通信失败"
     finally:
         if process.stdin:
-            process.stdin.close()
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
         if process.poll() is None:
             process.terminate()
             try:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 process.kill()
+                process.wait()
 
-    if "error" in responses[2] or "error" in responses[3]:
-        return None, "无法读取，请重新登录"
+    account_response = responses[2]
+    account_result = account_response.get("result")
+    account_result = account_result if isinstance(account_result, dict) else {}
+    account = account_result.get("account")
+    if isinstance(account, dict) and account.get("type") == "apiKey":
+        return None, "API key 模式不支持 ChatGPT 额度查询"
+    if account is None and account_result.get("requiresOpenaiAuth"):
+        return None, "认证已失效，请重新登录"
+    for response in (account_response, responses[3]):
+        error = response.get("error")
+        if error:
+            message = str(error.get("message", "")) if isinstance(error, dict) else str(error)
+            normalized = message.lower()
+            if any(phrase in normalized for phrase in (
+                "authentication required", "not authenticated", "authorization required",
+                "token expired", "invalid token",
+            )):
+                return None, "认证已失效，请重新登录"
+            return None, f"额度读取失败: {message or '服务端返回错误'}"
     return {
-        "account": responses[2].get("result", {}).get("account"),
+        "account": account,
         "limits": responses[3].get("result", {}),
     }, None
 
@@ -957,10 +1018,16 @@ def account_status(account):
     return account["id"], *app_server_request(home)
 
 
-def status_accounts():
+def status_accounts(account_id=None):
     require_codex()
     with config_lock():
-        accounts = usable_accounts(load_config())
+        config = load_config()
+    if account_id is None:
+        accounts = usable_accounts(config)
+    else:
+        accounts = [account for account in config["accounts"] if account["id"] == account_id]
+        if not accounts:
+            raise RouterError(f"账号 {account_id} 不存在")
     if not accounts:
         raise RouterError("没有可用账号")
 
@@ -977,7 +1044,8 @@ def status_accounts():
         print(f'{account["id"]}: {account["name"]}')
         if error:
             print(f"    额度: {error}")
-            print(f"    处理: ~/codex.sh login retry {account['id']}")
+            if error == "认证已失效，请重新登录":
+                print(f"    处理: ~/codex.sh account retry {account['id']}")
             continue
 
         account_info = details.get("account") or {}
@@ -1037,6 +1105,13 @@ def account_for_session(cfg, accounts, session_id):
 
 
 def choose(args):
+    route_info = args[:1] == ["--route-info"]
+    if route_info:
+        args = args[1:]
+
+    def selected(account, mode):
+        print(f"{account['home']}\t{mode}" if route_info else account["home"])
+
     with config_lock():
         cfg = load_config()
         accounts = usable_accounts(cfg)
@@ -1044,18 +1119,17 @@ def choose(args):
             raise RouterError("没有目录有效的可用账号")
         seed_shared_from_accounts(cfg["accounts"])
 
-        if "--account" in args:
-            index = args.index("--account")
-            if index + 1 >= len(args):
+        if args[:1] == ["--account"]:
+            if len(args) < 2:
                 raise RouterError("--account 缺少账号 ID", 2)
-            account_id = parse_positive_int(args[index + 1], "账号 ID")
+            account_id = parse_positive_int(args[1], "账号 ID")
             account = next(
                 (item for item in accounts if item["id"] == account_id), None
             )
             if account is None:
                 raise RouterError(f"账号不存在或目录无效: {account_id}", 2)
             sync_shared_for_account(Path(account["home"]))
-            print(account["home"])
+            selected(account, "forced")
             return 0
 
         session_id = session_id_from_args(args)
@@ -1064,7 +1138,7 @@ def choose(args):
             if account is not None:
                 save_config(cfg)
                 sync_shared_for_account(Path(account["home"]))
-                print(account["home"])
+                selected(account, "resume")
                 return 0
 
         default_account_id_value = default_account_id(cfg)
@@ -1076,7 +1150,7 @@ def choose(args):
             if account is not None:
                 sync_shared_for_account(Path(account["home"]))
                 save_config(cfg)
-                print(account["home"])
+                selected(account, "default")
                 return 0
 
         position = cfg["last_used"]
@@ -1084,7 +1158,7 @@ def choose(args):
         sync_shared_for_account(Path(account["home"]))
         cfg["last_used"] = position + 1
         save_config(cfg)
-        print(account["home"])
+        selected(account, "rotate")
         return 0
 
 
@@ -1103,21 +1177,23 @@ def main(args):
         return apply_sol_luna_preset()
     if args == ["config", "status"]:
         return sol_luna_preset_status()
-    if args == ["login"]:
-        return login_first()
-    if args == ["login", "add"]:
-        return login_add()
-    if args == ["login", "list"]:
+    if args == ["account", "add"]:
+        with config_lock():
+            has_accounts = bool(load_config()["accounts"])
+        return login_add() if has_accounts else login_first()
+    if args == ["account", "list"]:
         return list_accounts()
     if args == ["status"]:
         return status_accounts()
-    if args == ["login", "sync-shared"]:
+    if len(args) == 2 and args[0] == "status":
+        return status_accounts(parse_positive_int(args[1], "账号 ID"))
+    if args == ["account", "sync-shared"]:
         return sync_shared()
-    if len(args) == 3 and args[:2] == ["login", "set-default"]:
+    if len(args) == 3 and args[:2] == ["account", "default"]:
         return login_set_default(parse_positive_int(args[2], "账号 ID"))
-    if len(args) >= 4 and args[:2] == ["login", "rename"]:
+    if len(args) >= 4 and args[:2] == ["account", "rename"]:
         return login_rename(parse_positive_int(args[2], "账号 ID"), " ".join(args[3:]))
-    if len(args) == 3 and args[:2] == ["login", "retry"]:
+    if len(args) == 3 and args[:2] == ["account", "retry"]:
         return login_retry(parse_positive_int(args[2], "账号 ID"))
     if args and args[0] == "choose":
         return choose(args[1:])

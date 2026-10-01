@@ -45,15 +45,15 @@ Account management
   account retry <id>           重新登录指定账号
 
 Configuration
-  config apply                 应用可移植 Sol/Luna preset 并同步共享配置
-  config status                只读检查 Sol/Luna preset 与共享链接
+  config apply                 应用可移植 Astra/Sol/Luna preset 并同步共享配置
+  config status                只读检查 Astra/Sol/Luna preset 与共享链接
+  update                       快进更新仓库，安装并验证共享配置
 
 Reasoning profiles
-  -p efficient                  Sol high + Luna high，适合常规任务
-  -p quality                    Sol max + Luna xhigh，默认高质量模式
-  -p ultra                      Sol ultra 自动委派，适合大型可并行任务
+  -p efficient                  GPT-6.1 Sol low + GPT-6 Luna medium，适合常规任务
+  -p quality                    Astra medium + Luna medium，默认高质量模式
   不传 -p                      使用 quality 等价的共享默认配置
-  Luna 不可用                  自动回退 Terra xhigh
+  Luna 无法推进                按调度规则交给 GPT-6.1 Sol low 接管
 
 Session & routing
   resume <SESSION_ID>          恢复 Codex session
@@ -67,11 +67,11 @@ Examples
   codex.sh account rename 2 alias      修改账号 2 的名称
   codex.sh account sync-shared         同步共享配置
   codex.sh account default 3           将账号 3 设为默认
-  codex.sh config apply                应用 Sol/Luna preset
-  codex.sh config status               检查 Sol/Luna preset
+  codex.sh config apply                应用 Astra/Sol/Luna preset
+  codex.sh config status               检查 Astra/Sol/Luna preset
   codex.sh -p efficient                使用高效模式启动 Codex
   codex.sh -p quality                  使用高质量模式启动 Codex
-  codex.sh -p ultra                    使用 Ultra 自动委派模式启动 Codex
+  codex.sh update                      更新本机路由器和共享配置
   codex.sh -a 2 -p quality             指定账号并使用高质量模式
   codex.sh status                      查看账号状态
   codex.sh resume <SESSION_ID>         按会话恢复
@@ -93,7 +93,7 @@ run_status() {
   local -a spinner_frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
   status_file=$(mktemp "${TMPDIR:-/tmp}/codex-router-status.XXXXXX") || die 1 "无法创建状态临时文件"
 
-  "$ROUTER_PYTHON" "$ROUTER_SCRIPT" status >"$status_file" 2>&1 &
+  "$ROUTER_PYTHON" "$ROUTER_SCRIPT" status "$@" >"$status_file" 2>&1 &
   status_pid=$!
   started_at=$SECONDS
   if [[ -t 2 ]]; then
@@ -127,7 +127,6 @@ ACCOUNT_ID=""
 QUIET=0
 VERBOSE=0
 INDEX=0
-ACCOUNT_WAS_FORCED=0
 
 while (( INDEX < ${#ARGS[@]} )); do
   ARG="${ARGS[INDEX]}"
@@ -145,7 +144,6 @@ while (( INDEX < ${#ARGS[@]} )); do
       if [[ ! "$ACCOUNT_ID" =~ ^[1-9][0-9]*$ ]]; then
         die 2 "-a 需要正整数账号 ID"
       fi
-      ACCOUNT_WAS_FORCED=1
       INDEX=$((INDEX + 2))
       continue
       ;;
@@ -168,24 +166,38 @@ while (( INDEX < ${#ARGS[@]} )); do
       break
       ;;
     *)
-      CODEX_ARGS+=("$ARG")
-      INDEX=$((INDEX + 1))
+      CODEX_ARGS+=("${ARGS[@]:INDEX}")
+      break
       ;;
   esac
 
 done
 
-if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "help" ]]; then
-  die 2 "已移除 help 子命令，请改用 -h/--help"
+for (( PROFILE_INDEX=0; PROFILE_INDEX<${#CODEX_ARGS[@]}; PROFILE_INDEX++ )); do
+  case "${CODEX_ARGS[PROFILE_INDEX]}" in
+    --) break ;;
+    --profile=ultra|-pultra)
+      die 2 "ultra 已移除，请使用 -p efficient 或 -p quality"
+      ;;
+    -p|--profile)
+      if (( PROFILE_INDEX + 1 < ${#CODEX_ARGS[@]} )) && [[ "${CODEX_ARGS[PROFILE_INDEX + 1]}" == "ultra" ]]; then
+        die 2 "ultra 已移除，请使用 -p efficient 或 -p quality"
+      fi
+      ;;
+  esac
+done
+
+if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "update" ]]; then
+  if (( ${#CODEX_ARGS[@]} != 1 )) || [[ -n "$ACCOUNT_ID" ]]; then
+    die 2 "update 不接受额外参数或 -a"
+  fi
+  [[ -f "$SCRIPT_DIR/update.sh" ]] || die 1 "当前 checkout 缺少 update.sh，请先更新仓库"
+  exec bash "$SCRIPT_DIR/update.sh"
 fi
 
 if (( ${#CODEX_ARGS[@]} > 1 )) && [[ "${CODEX_ARGS[0]}" == "account" ]]; then
   case "${CODEX_ARGS[1]}" in
-    default)
-      CODEX_ARGS=(login set-default "${CODEX_ARGS[@]:2}")
-      ;;
-    list|add|rename|sync-shared|retry)
-      CODEX_ARGS=(login "${CODEX_ARGS[@]:1}")
+    default|list|add|rename|sync-shared|retry)
       ;;
     *)
       die 2 "未知 account 子命令: ${CODEX_ARGS[1]}"
@@ -220,25 +232,33 @@ if [[ ! -f "$ROUTER_SCRIPT" || ! -r "$ROUTER_SCRIPT" ]]; then
 fi
 
 # Management commands are handled by the Python router.
-if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "status" || "${CODEX_ARGS[0]}" == "login" ]]; then
+if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "status" || "${CODEX_ARGS[0]}" == "account" ]]; then
+  if [[ "${CODEX_ARGS[0]}" == "status" ]]; then
+    if (( ${#CODEX_ARGS[@]} != 1 )); then
+      die 2 "status 不接受位置参数，请使用 -a <id> status 指定账号"
+    fi
+    if [[ -n "$ACCOUNT_ID" ]]; then
+      run_status "$ACCOUNT_ID"
+    else
+      run_status
+    fi
+    exit $?
+  fi
   if [[ -n "$ACCOUNT_ID" ]]; then
     die 2 "-a 不能与管理命令一起使用"
-  fi
-  if [[ "${CODEX_ARGS[0]}" == "status" ]]; then
-    run_status
-    exit $?
   fi
   exec "$ROUTER_PYTHON" "$ROUTER_SCRIPT" "${CODEX_ARGS[@]}"
 fi
 
 # -a is router-only and must not be forwarded to the Codex CLI.
-CHOOSER_ARGS=()
+CHOOSER_ARGS=(--route-info)
 if [[ -n "$ACCOUNT_ID" ]]; then
   CHOOSER_ARGS+=(--account "$ACCOUNT_ID")
 fi
 CHOOSER_ARGS+=("${CODEX_ARGS[@]}")
 
-SELECTED_CODEX_HOME=$("$ROUTER_PYTHON" "$ROUTER_SCRIPT" choose "${CHOOSER_ARGS[@]}")
+SELECTION=$("$ROUTER_PYTHON" "$ROUTER_SCRIPT" choose "${CHOOSER_ARGS[@]}")
+IFS=$'\t' read -r SELECTED_CODEX_HOME ROUTE_MODE <<< "$SELECTION"
 if [[ -z "$SELECTED_CODEX_HOME" ]]; then
   die 1 "没有可用账号"
 fi
@@ -253,22 +273,6 @@ if [[ "$(basename "$SELECTED_CODEX_HOME")" =~ account-([0-9]+)$ ]]; then
   SELECTED_ID="${BASH_REMATCH[1]}"
 fi
 
-ROUTE_MODE="rotate"
-if (( ACCOUNT_WAS_FORCED == 1 )); then
-  ROUTE_MODE="forced"
-elif (( ${#CODEX_ARGS[@]} > 1 )) && [[ "${CODEX_ARGS[0]}" == "resume" ]]; then
-  ROUTE_MODE="resume"
-else
-  DEFAULT_AUTH="$HOME/.codex/auth.json"
-  if [[ -L "$DEFAULT_AUTH" && -f "$DEFAULT_AUTH" ]]; then
-    DEFAULT_ACCOUNT_HOME=$(dirname "$(realpath "$DEFAULT_AUTH")")
-    if [[ "$DEFAULT_ACCOUNT_HOME" == "$SELECTED_CODEX_HOME" ]]; then
-      ROUTE_MODE="default"
-    fi
-  fi
-fi
-
-DEFAULT_AUTH="$HOME/.codex/auth.json"
 if (( QUIET == 0 )); then
   case "$ROUTE_MODE" in
     forced)
@@ -290,4 +294,5 @@ if (( VERBOSE == 1 )); then
   printf '🔎 route_mode=%s account_id=%s\n' "$ROUTE_MODE" "$SELECTED_ID" >&2
 fi
 
-exec codex "${CODEX_ARGS[@]}"
+# Account isolation and the default-account link both rely on auth.json.
+exec codex -c 'cli_auth_credentials_store="file"' "${CODEX_ARGS[@]}"

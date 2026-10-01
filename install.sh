@@ -76,7 +76,7 @@ ensure_codex() {
 }
 
 rtk_is_token_killer() {
-  command -v rtk >/dev/null 2>&1 && rtk --version >/dev/null 2>&1 && rtk gain >/dev/null 2>&1
+  command -v rtk >/dev/null 2>&1 && rtk --version >/dev/null 2>&1 && rtk gain --help >/dev/null 2>&1
 }
 
 ensure_rtk() {
@@ -93,7 +93,7 @@ ensure_rtk() {
   curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
   export PATH="$HOME/.local/bin:$PATH"
   hash -r
-  rtk_is_token_killer || die "RTK installation failed verification; expected rtk gain to succeed."
+  rtk_is_token_killer || die "RTK installation failed verification; expected the gain subcommand to be available."
 }
 
 for required in \
@@ -104,12 +104,8 @@ for required in \
   "$PROJECT_DIR/presets/sol-luna/config.toml" \
   "$PROJECT_DIR/presets/sol-luna/efficient.config.toml" \
   "$PROJECT_DIR/presets/sol-luna/quality.config.toml" \
-  "$PROJECT_DIR/presets/sol-luna/ultra.config.toml" \
   "$PROJECT_DIR/presets/sol-luna/agents/luna-worker.toml" \
-  "$PROJECT_DIR/presets/sol-luna/agents/luna-worker-high.toml" \
-  "$PROJECT_DIR/presets/sol-luna/agents/terra-worker.toml" \
-  "$PROJECT_DIR/presets/sol-luna/agents/terra-explorer.toml" \
-  "$PROJECT_DIR/presets/sol-luna/agents/terra-docs.toml"; do
+  "$PROJECT_DIR/presets/sol-luna/agents/sol-general.toml"; do
   [[ -f "$required" ]] || die "Incomplete checkout; missing repository preset component: ${required#$PROJECT_DIR/}"
 done
 
@@ -129,9 +125,8 @@ fi
 
 PRESET_EXISTS=0
 for target in AGENTS.md RTK.md config.toml \
-  efficient.config.toml quality.config.toml ultra.config.toml \
-  agents/luna-worker.toml agents/luna-worker-high.toml agents/terra-worker.toml \
-  agents/terra-explorer.toml agents/terra-docs.toml; do
+  efficient.config.toml quality.config.toml \
+  agents/luna-worker.toml agents/sol-general.toml; do
   if [[ -e "$SHARED_HOME/$target" || -L "$SHARED_HOME/$target" ]]; then
     PRESET_EXISTS=1
     break
@@ -168,7 +163,7 @@ if [[ -L "$HOME_LAUNCHER" && "$(readlink "$HOME_LAUNCHER")" == "$PROJECT_LAUNCHE
 fi
 printf 'Python environment: %s\n' "$VENV_DIR"
 if (( PRESET_APPLIED == 1 )); then
-  printf 'Applied the portable Codex/Sol/Luna/Terra preset.\n'
+  printf 'Applied the portable Codex/Astra/Sol/Luna preset.\n'
 fi
 printf 'Authentication and session files were not modified.\n'
 printf 'Next: ~/codex.sh account list\n'

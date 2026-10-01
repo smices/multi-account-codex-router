@@ -94,19 +94,13 @@ Do not run graph discovery and filesystem-wide search for the same question unle
 
 ## 10. Agent orchestration
 
-- The primary Sol agent owns analysis, architecture, planning, task boundaries, conflict resolution, review, and final acceptance.
-- Delegate bounded implementation or focused testing to Luna only when Luna is available, the work is non-trivial, and ownership and acceptance criteria are clear.
-- Keep small or tightly coupled tasks on the primary agent when delegation would add more coordination than value.
-- Luna must return ambiguity, conflicting requirements, scope changes, and unresolved risks to Sol.
-- Use `terra-explorer` only for bounded read-only codebase discovery when delegation materially reduces main-thread context pollution.
-- Use `terra-docs` only for bounded read-only document extraction and handoff preparation.
-- If `luna-worker` is unavailable or its model cannot be used, delegate bounded implementation to `terra-worker` and disclose the fallback in the final result.
-- When selecting any configured custom agent type, set `fork_turns="none"`; a full-history fork inherits the parent agent type and cannot select `luna-worker` or a Terra role.
-- In `efficient` mode, keep routine work on Sol high and delegate bounded implementation to Luna high.
-- In the default `quality` mode, use Sol max for controlled planning and acceptance, Luna xhigh for difficult bounded execution, and Terra xhigh only as the Luna fallback.
-- When the active reasoning effort is `ultra`, let Codex perform automatic task delegation. Do not duplicate that orchestration with proactive manual delegation; add a named custom agent only for a missing role or a clearly independent ownership boundary.
-- Prefer `quality` rather than `ultra` for security-sensitive or high-risk work unless the task is safely decomposable into independent parallel ownership. Keep Ultra concurrency bounded and avoid overlapping write scopes.
-- Subagent reports are evidence, not final acceptance. The primary agent remains responsible for evaluating changes and verification results.
+- The primary GPT-6 Astra agent owns planning, analysis, task boundaries, conflict resolution, review, and final acceptance.
+- Route ordinary tasks to `sol-general` (GPT-6.1 Sol, low). Keep trivial requests on one agent when delegation adds no value.
+- Delegate bounded implementation, fixes, and focused checks to `luna-worker` (GPT-6 Luna, medium) when ownership and acceptance criteria are clear. Tell workers they are not alone in the codebase and to preserve others' edits.
+- If Luna makes no meaningful progress after two materially different attempts, or cannot use its configured model, send the task and failure evidence to `sol-general` for takeover. Do not repeat the same deterministic failure.
+- Luna and Sol return ambiguity, conflicting requirements, scope changes, and unresolved risks to Astra. Astra reviews their evidence before accepting work.
+- Set `fork_turns="none"` when selecting a configured custom agent type so its model settings take effect. Do not manually duplicate Codex automatic delegation in `ultra` mode.
+- Prefix every user-visible commentary and final response with the actual responding model and reasoning effort, for example `【gpt-6.1-sol medium】`. Never infer another agent's model from its role when reporting its output.
 
 ## 11. Delivery
 

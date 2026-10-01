@@ -1,6 +1,6 @@
-# Quality mode: controlled maximum reasoning with explicit Sol/Luna delegation.
-model = "gpt-5.6-sol"
-model_reasoning_effort = "max"
-agents.default_subagent_model = "gpt-5.6-luna"
-agents.default_subagent_reasoning_effort = "xhigh"
+# Quality mode: Astra at the current Codex default reasoning effort.
+model = "gpt-6-astra"
+model_reasoning_effort = "medium"
+agents.default_subagent_model = "gpt-6-luna"
+agents.default_subagent_reasoning_effort = "medium"
 agents.luna-worker.config_file = "agents/luna-worker.toml"
