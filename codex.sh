@@ -2,6 +2,10 @@
 
 # When sourced, re-run in a child shell so exit/exec and strict-mode options
 # cannot terminate or modify the caller's interactive shell.
+if [ -z "${BASH_VERSION:-}" ] && [ -n "${ZSH_VERSION:-}" ]; then
+  bash "${(%):-%x}" "$@"
+  return $?
+fi
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
   bash "${BASH_SOURCE[0]}" "$@"
   return $?

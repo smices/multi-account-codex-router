@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,27 @@ SPEC.loader.exec_module(router)
 
 
 class RouterCommandTests(unittest.TestCase):
+    def test_sourcing_in_bash_and_zsh_preserves_caller_and_exit_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            launcher = Path(directory) / "launcher with spaces.sh"
+            launcher.symlink_to(PROJECT / "codex.sh")
+            for shell in ("bash", "zsh"):
+                if shutil.which(shell) is None:
+                    continue
+                for args, expected in ((["--help"], 0), (["-a", "0"], 2)):
+                    with self.subTest(shell=shell, args=args):
+                        result = subprocess.run(
+                            [shell, "-fc", 'set -u; before_options="$-"; before_pwd="$PWD"; launcher="$1"; shift; if . "$launcher" "$@"; then source_result=0; else source_result=$?; fi; test "$before_options" = "$-" && test "$before_pwd" = "$PWD" || exit 99; printf "SOURCE_STATUS=%s\\nCALLER_ALIVE\\n" "$source_result"', shell, str(launcher), *args],
+                            capture_output=True, text=True,
+                            env={**os.environ, **({"ZSH_VERSION": "inherited"} if shell == "bash" else {})},
+                        )
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn(f"SOURCE_STATUS={expected}", result.stdout)
+                        self.assertIn("CALLER_ALIVE", result.stdout)
+                        if expected == 0:
+                            self.assertIn("Codex Router", result.stdout)
+                            self.assertEqual(result.stderr, "")
+
     def test_first_add_with_existing_codex_directory_but_no_file_auth_logs_in(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

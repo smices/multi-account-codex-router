@@ -18,6 +18,8 @@ cd multi-account-codex-router
 
 - 创建仓库内的 `.venv` Python 环境。
 - 将 `~/codex.sh` 链接到仓库中的启动脚本。
+
+推荐直接运行 `~/codex.sh`，脚本的 shebang 会选择 Bash；也可显式运行 `bash ~/codex.sh`。Bash 和 Zsh 中的 `. ~/codex.sh` 会转交给子 Bash 执行，保留当前 shell 的选项和工作目录，并返回路由器的退出状态。
 - 如果 `~/codex.sh` 已存在且不是本仓库的链接，先备份为 `~/codex.sh.pre-router-backup.<timestamp>`。
 
 安装器会自动应用可移植的 Astra/Sol/Luna preset 到路由器的共享配置；只管理该 preset 声明的字段，已有的无关配置、认证和 session 会保留。每个被改动的既有共享文件都会在路由器备份目录中保存时间戳副本。
