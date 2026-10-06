@@ -27,24 +27,10 @@
 - Do not install, enable, authenticate, or reconfigure Skills, plugins, or MCP servers unless requested or required by an explicitly authorized setup task.
 - Never dump complete tool schemas, MCP configuration, plugin manifests, Skill catalogs, or credentials into model context. Return only names, status, counts, selected fields, and bounded errors.
 
-## 4. Code discovery with codebase-memory-mcp
+## 4. Code discovery
 
-- Use codebase-memory-mcp when project instructions explicitly require it or the current repository is already registered in its index. Do not index an arbitrary repository solely because the MCP server is available.
-- When codebase-memory-mcp applies, check `index_status` once before graph discovery.
-- If the designated repository is not indexed, run `index_repository` once. If an existing index may be stale, use `detect_changes` when available before considering a full reindex.
-- Do not repeatedly index an unchanged repository.
-
-Use graph tools in this order:
-
-1. `search_graph` or `search_code` to locate symbols and implementations.
-2. `trace_path` to inspect inbound and outbound relationships.
-3. `get_code_snippet` to read the smallest relevant implementation.
-4. `query_graph` for relationships that simpler graph tools cannot answer.
-5. `get_architecture` only when a high-level architecture map is needed.
-
-Use `rg` or targeted file reads for exact string literals, error messages, configuration values, documentation, scripts, generated files, unavailable graph tools, repositories that are not designated for indexing, or incomplete graph results.
-
-Do not run graph discovery and filesystem-wide search for the same question unless the first method is insufficient. Stop discovery once enough evidence exists for the next engineering decision.
+- Use `rg` and targeted file reads to locate relevant code, configuration, and documentation.
+- Stop discovery once enough evidence exists for the next engineering decision.
 
 ## 5. RTK shell compression
 
