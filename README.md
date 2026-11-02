@@ -102,6 +102,14 @@ Session & routing
 
 同步时遇到同名的本地配置会先创建 `.shared-backup*`，不会静默覆盖。
 
+## 仓库内共享 Skills
+
+`shared-skills/` 用于存放可跨账号、跨电脑复用的 Skill 源码，每个 Skill 独立成目录，以 `SKILL.md` 为入口。
+
+- [install-office-2024-ltsc](shared-skills/install-office-2024-ltsc/SKILL.md)：在 macOS 上安装、激活和验证 Office LTSC 2024 的 Word、Excel、PowerPoint，排除自动更新组件。后续版本另建 Skill，保留这一版。
+
+需要启用时，将选定的 Skill 目录复制或链接到路由器的 `shared/skills/`，先处理同名目录冲突。仓库安装器当前不会自动部署这些 Skill，也不会因此安装 Office。
+
 ## 可移植 Astra/Sol/Luna preset
 
 新设备只需 clone 仓库并运行 `./install.sh`。安装后 preset 自动生效；也可以随时运行：

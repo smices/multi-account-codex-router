@@ -1,0 +1,4 @@
+interface:
+  display_name: "Install Office LTSC 2024"
+  short_description: "Install and verify Office LTSC 2024 for Mac"
+  default_prompt: "Use $install-office-2024-ltsc to install or repair Microsoft Office LTSC 2024 on macOS."
