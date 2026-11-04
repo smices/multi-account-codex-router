@@ -108,6 +108,8 @@ Session & routing
 
 - [install-office-2024-ltsc](shared-skills/install-office-2024-ltsc/SKILL.md)：在 macOS 上安装、激活和验证 Office LTSC 2024 的 Word、Excel、PowerPoint，排除自动更新组件。后续版本另建 Skill，保留这一版。
 
+- [webauto](shared-skills/webauto/SKILL.md)：统一网页自动化入口，使用 `$webauto` 调用；普通任务用 Lightpanda，高级交互、登录态和截图用 ego-lite，附运行时安装说明。
+
 需要启用时，将选定的 Skill 目录复制或链接到路由器的 `shared/skills/`，先处理同名目录冲突。仓库安装器当前不会自动部署这些 Skill，也不会因此安装 Office。
 
 ## 可移植 Astra/Sol/Luna preset

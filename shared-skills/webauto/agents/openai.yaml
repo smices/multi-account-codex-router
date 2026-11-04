@@ -1,0 +1,4 @@
+interface:
+  display_name: "Webauto"
+  short_description: "Web automation with Lightpanda and ego-lite"
+  default_prompt: "Use $webauto to automate this web task, choosing the browser engine for its requirements."
