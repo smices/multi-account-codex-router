@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import nullcontext, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +19,33 @@ SPEC.loader.exec_module(router)
 
 
 class RouterCommandTests(unittest.TestCase):
+    def test_next_account_id_reuses_first_unoccupied_gap(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(router, "account_home", side_effect=lambda account_id: Path(directory) / f"account-{account_id}"):
+            for account_id in (1, 3):
+                (Path(directory) / f"account-{account_id}").mkdir()
+            self.assertEqual(router.next_account_id({"accounts": [{"id": 1}, {"id": 3}, {"id": 4}]}), 2)
+
+    def test_login_add_saves_accounts_sorted_and_failed_login_unregistered(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = {"accounts": [{"id": 3, "name": "account-3", "home": str(root / "account-3")}, {"id": 4, "name": "account-4", "home": str(root / "account-4")}]}
+            for account_id in (1, 3, 4):
+                (root / f"account-{account_id}").mkdir()
+            config_path = root / "config.json"
+            def load():
+                return json.loads(config_path.read_text()) if config_path.exists() else config
+            with patch.object(router, "account_home", side_effect=lambda account_id: root / f"account-{account_id}"), patch.object(router, "config_lock", return_value=nullcontext()), patch.object(router, "load_config", side_effect=load), patch.object(router, "save_config", side_effect=lambda cfg: config_path.write_text(json.dumps(cfg))), patch.object(router, "run_login", return_value=0), patch.object(router, "seed_shared_from_accounts"), patch.object(router, "sync_shared_for_account"), patch.object(router, "login_set_default"), redirect_stdout(io.StringIO()):
+                self.assertEqual(router.login_add(), 0)
+            self.assertEqual([account["id"] for account in load()["accounts"]], [2, 3, 4])
+
+            failed = {"accounts": [{"id": 1, "name": "account-1", "home": str(root / "account-1")}]}
+            with patch.object(router, "load_config", return_value=failed), patch.object(router, "run_login", return_value=7), patch.object(router, "save_config") as save, patch.object(router, "account_home", side_effect=lambda account_id: root / f"account-{account_id}"), patch.object(router, "config_lock", return_value=nullcontext()), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(router.login_add(), 7)
+            save.assert_not_called()
+            self.assertFalse((root / "account-5").exists())
+            self.assertTrue((root / "account-1").is_dir())
+            self.assertEqual([account["id"] for account in failed["accounts"]], [1])
+
     def test_sourcing_in_bash_and_zsh_preserves_caller_and_exit_status(self):
         with tempfile.TemporaryDirectory() as directory:
             launcher = Path(directory) / "launcher with spaces.sh"

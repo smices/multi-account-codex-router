@@ -34,6 +34,8 @@ cd multi-account-codex-router
 
 全新机器上，路由器会自动创建 `~/.codex-router`、`account-1`、`shared` 与配置文件，然后打开设备登录流程。登录成功后，首个账号会自动成为直接运行 `codex` 时的默认账号。
 
+新增账号会使用最小的未占用 ID；已有账号目录会保留原 ID，账号列表按 ID 升序保存。
+
 如果机器上已有 `~/.codex`，该命令会将其迁移到 `account-1`，统一共享配置，并将默认 `codex` 认证链接到该账号。原默认认证和 session 会保留为 `.default-backup*` 备份，而不会被静默删除。
 
 ## 常用命令

@@ -427,6 +427,7 @@ def login_add():
             "name": f"account-{account_id}",
             "home": str(home),
         })
+        cfg["accounts"].sort(key=lambda account: account["id"])
         save_config(cfg)
     if first_account:
         login_set_default(account_id)
