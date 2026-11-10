@@ -80,13 +80,13 @@
 
 ## 10. Agent orchestration
 
-- The primary GPT-6 Astra agent owns planning, analysis, task boundaries, conflict resolution, review, and final acceptance.
-- Route ordinary tasks to `sol-general` (GPT-6.1 Sol, low). Keep trivial requests on one agent when delegation adds no value.
-- Delegate bounded implementation, fixes, and focused checks to `luna-worker` (GPT-6 Luna, medium) when ownership and acceptance criteria are clear. Tell workers they are not alone in the codebase and to preserve others' edits.
+- The primary agent follows the selected profile: GPT-6.1 Sol, xhigh by default; GPT-6 Astra, medium for quality mode. The primary owns planning, analysis, task boundaries, conflict resolution, review, and final acceptance.
+- Use `sol-general` (GPT-6.1 Sol, xhigh) for delegated ordinary work and Luna takeover when delegation adds value. Keep trivial requests on the primary agent.
+- Delegate bounded implementation, fixes, and focused checks to `luna-worker` (GPT-6 Luna, xhigh) when ownership and acceptance criteria are clear. Tell workers they are not alone in the codebase and to preserve others' edits.
 - If Luna makes no meaningful progress after two materially different attempts, or cannot use its configured model, send the task and failure evidence to `sol-general` for takeover. Do not repeat the same deterministic failure.
-- Luna and Sol return ambiguity, conflicting requirements, scope changes, and unresolved risks to Astra. Astra reviews their evidence before accepting work.
+- Luna and Sol return ambiguity, conflicting requirements, scope changes, and unresolved risks to the coordinating primary agent. The primary reviews their evidence before accepting work.
 - Set `fork_turns="none"` when selecting a configured custom agent type so its model settings take effect. Do not manually duplicate Codex automatic delegation in `ultra` mode.
-- Prefix every user-visible commentary and final response with the actual responding model and reasoning effort, for example `【gpt-6.1-sol medium】`. Never infer another agent's model from its role when reporting its output.
+- Prefix every user-visible commentary and final response with the actual responding model and reasoning effort, for example `【gpt-6.1-sol xhigh】`. Never infer another agent's model from its role when reporting its output.
 
 ## 11. Delivery
 

@@ -1,6 +1,6 @@
-# Quality mode: Astra at the current Codex default reasoning effort.
+# Quality mode: Astra medium for demanding work.
 model = "gpt-6-astra"
 model_reasoning_effort = "medium"
 agents.default_subagent_model = "gpt-6-luna"
-agents.default_subagent_reasoning_effort = "medium"
+agents.default_subagent_reasoning_effort = "xhigh"
 agents.luna-worker.config_file = "agents/luna-worker.toml"

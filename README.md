@@ -64,8 +64,8 @@ Account management
 | `codex.sh config apply` | 应用 Astra/Sol/Luna preset，并同步所有可用账号 |
 | `codex.sh config status` | 只读检查 preset 文件、受管字段和账号共享链接 |
 | `codex.sh update` | 快进拉取路由器、安装并验证共享配置 |
-| `codex.sh -p efficient` | 高效模式：GPT-6.1 Sol low + GPT-6 Luna medium |
-| `codex.sh -p quality` | 高质量模式：GPT-6 Astra medium + GPT-6 Luna medium |
+| `codex.sh -p efficient` | 日常默认模式：GPT-6.1 Sol xhigh + GPT-6 Luna xhigh |
+| `codex.sh -p quality` | 高质量模式：GPT-6 Astra medium + GPT-6 Luna xhigh |
 
 Session & routing
 
@@ -143,16 +143,17 @@ codex.sh config status
 
 既有 `config.toml` 中非受管的 MCP、插件和其他设置会保留，现有 Skills、plugins 和 rules 目录也不会被清空。
 
-默认受管字段固定为：主模型 `gpt-6-astra` / `medium`、默认子代理 `gpt-6-luna` / `medium`，以及 `luna-worker` 和 `sol-general` 的描述与 TOML 文件。`sol-general` 固定为 `gpt-6.1-sol` / `low`。`presets/sol-luna/AGENTS.md` 是完整共享指令的仓库源文件，覆盖按需加载 Skills/MCP/RTK、输出压缩、重试与等待熔断，以及 Astra/Sol/Luna 调度。
+默认受管字段固定为：主模型 `gpt-6.1-sol` / `xhigh`、默认子代理 `gpt-6-luna` / `xhigh`，以及 `luna-worker` 和 `sol-general` 的描述与 TOML 文件。`sol-general` 固定为 `gpt-6.1-sol` / `xhigh`，`luna-worker` 固定为 `gpt-6-luna` / `xhigh`。高质量模式的主模型为 `gpt-6-astra` / `medium`。`presets/sol-luna/AGENTS.md` 是完整共享指令的仓库源文件，覆盖按需加载 Skills/MCP/RTK、输出压缩、重试与等待熔断，以及 Astra/Sol/Luna 调度。
 
 模式通过 Codex 原生 Profile 在启动时选择，不改写共享默认配置：
 
 ```bash
-codex.sh -p efficient  # GPT-6.1 Sol low + GPT-6 Luna medium，常规任务
-codex.sh -p quality    # GPT-6 Astra medium + GPT-6 Luna medium，默认高质量模式
+codex.sh               # 默认 GPT-6.1 Sol xhigh + GPT-6 Luna xhigh
+codex.sh -p efficient  # 与默认相同，日常任务
+codex.sh -p quality    # GPT-6 Astra medium + GPT-6 Luna xhigh，高质量任务
 ```
 
-不传 `-p` 时与 `quality` 相同。Luna 无法使用或经过两种不同尝试仍无实质进展时，由 `sol-general` 接管并回报 Astra。已移除 `ultra` profile；更新时会备份旧文件并移除其共享链接。推理档位按本机 Codex `model/list` 返回的默认值设置：Astra medium、Sol 6.1 low、Luna medium；未来模型默认值变动时需重新核验。
+不传 `-p` 时与 `efficient` 相同。主代理按所选模式承担规划和验收；Luna 无法使用或经过两种不同尝试仍无实质进展时，由 `sol-general` 接管并向主代理回报。已移除 `ultra` profile；更新时会备份旧文件并移除其共享链接。本次显式选择推理档位：Astra `medium`、Sol 6.1 `xhigh`、Luna `xhigh`，不沿用模型默认档位。最新 Luna 的模型 ID 为 `gpt-6-luna`；已用官方模型说明及本机 Codex `model/list` 核验这三个模型与对应档位，未来更新需重新核验。
 
 模型分工依据[官方模型说明](https://learn.chatgpt.com/docs/models)；认证存储与额度查询分别依据[官方认证文档](https://learn.chatgpt.com/docs/auth#credential-storage)和[app-server 协议](https://learn.chatgpt.com/docs/app-server)。模型和推理级别的实际可用性仍取决于账号与工作区授权。
 

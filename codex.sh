@@ -59,12 +59,12 @@ Configuration
   update                       快进更新仓库，安装并验证共享配置
 
 Reasoning profiles
-  -p efficient                  GPT-6.1 Sol low + GPT-6 Luna medium，适合常规任务
-  -p quality                    Astra medium + Luna medium，默认高质量模式
+  -p efficient                  GPT-6.1 Sol xhigh + GPT-6 Luna xhigh，日常默认模式
+  -p quality                    Astra medium + Luna xhigh，高质量模式
   -p / --profile 为 Codex 原生参数，也支持已有的自定义 profile。
   ultra preset 已退役，不再随路由器提供。
-  不传 -p                      使用 quality 等价的共享默认配置
-  Luna 无法推进                按调度规则交给 GPT-6.1 Sol low 接管
+  不传 -p                      使用 efficient 等价的共享默认配置
+  Luna 无法推进                按调度规则交给 GPT-6.1 Sol xhigh 接管
 
 Session & routing
   resume <SESSION_ID>          恢复 Codex session
