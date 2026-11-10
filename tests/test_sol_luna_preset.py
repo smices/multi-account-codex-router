@@ -254,16 +254,15 @@ class SolLunaPresetTests(unittest.TestCase):
             self.assertNotIn("/" + "Users/", text)
             self.assertNotIn("jack" + "y", text)
 
-    def test_install_documents_and_checks_python_tomllib_before_launcher_changes(self):
+    def test_install_syncs_locked_uv_environment_before_launcher_changes(self):
         installer = (PROJECT / "install.sh").read_text(encoding="utf-8")
         readme = (PROJECT / "README.md").read_text(encoding="utf-8")
-        gate = installer.index("python3 -c 'import tomllib'")
+        gate = installer.index('uv sync --locked --project "$PROJECT_DIR"')
         apply = installer.index('"$VENV_DIR/bin/python" "$PROJECT_DIR/_codex.py" config apply')
         launcher = installer.index('if [[ -e "$HOME_LAUNCHER"')
         self.assertLess(gate, apply)
         self.assertLess(apply, launcher)
         self.assertIn("Python 3.11", readme)
-        self.assertIn("tomllib", readme)
         self.assertIn("--force", installer)
         self.assertIn("[y/N]", installer)
         self.assertIn("[Y/n]", installer)

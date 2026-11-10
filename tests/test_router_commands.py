@@ -161,8 +161,12 @@ class RouterCommandTests(unittest.TestCase):
                 (["-q", "exec", "-a", "never", "task"], ["exec", "-a", "never", "task"]),
                 (["-q", "exec", "--", "-h", "-a", "literal"], ["exec", "--", "-h", "-a", "literal"]),
                 (["-q", "help", "exec"], ["help", "exec"]),
+                (["-q", "exec", "echo", "--profile=ultra"], ["exec", "echo", "--profile=ultra"]),
+                (["-q", "exec", "-p", "ultra"], ["exec", "-p", "ultra"]),
+                (["-q", "--profile=ultra"], ["--profile=ultra"]),
                 (["account", "retry", "2"], ["account", "retry", "2"]),
                 (["account", "default", "2"], ["account", "default", "2"]),
+                (["account", "remove", "2"], ["account", "remove", "2"]),
                 (["-a", "2", "status"], ["status", "2"]),
             )
             for args, expected in cases:
@@ -171,9 +175,157 @@ class RouterCommandTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     prefix = ["-c", 'cli_auth_credentials_store="file"'] if args[0] == "-q" else []
                     self.assertEqual(json.loads(result.stdout), prefix + expected)
-            for args in (["status", "unexpected"], ["-a", "2", "account", "retry", "2"], ["login", "retry", "2"], ["-p", "ultra"], ["--profile", "ultra"], ["--profile=ultra"], ["-pultra"], ["exec", "-p", "ultra"]):
+            for args in (["status", "unexpected"], ["-a", "2", "account", "retry", "2"], ["login", "retry", "2"]):
                 result = subprocess.run(["bash", str(PROJECT / "codex.sh"), *args], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_management_help_needs_no_installation_and_does_not_create_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {**os.environ, "HOME": directory, "CODEX_ROUTER_PYTHON": str(Path(directory) / "missing")}
+            commands = (
+                [], ["account"], ["config"], ["status"], ["update"],
+                *(["account", command] for command in ("add", "list", "remove", "retry", "default", "rename", "sync-shared")),
+                ["account", "remove", "2"], ["config", "apply"], ["config", "status"],
+            )
+            for command in commands:
+                for flag in ("-h", "--help"):
+                    with self.subTest(command=command, flag=flag):
+                        result = subprocess.run(["bash", str(PROJECT / "codex.sh"), *command, flag], env=env, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("account remove <id>", result.stdout)
+                        self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_native_help_skips_account_selection_and_preserves_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            codex = Path(directory) / "codex"
+            codex.write_text(f"#!{sys.executable}\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n")
+            codex.chmod(0o755)
+            env = {
+                **os.environ, "HOME": directory, "PATH": directory + os.pathsep + os.environ["PATH"],
+                "CODEX_ROUTER_PYTHON": str(Path(directory) / "missing"),
+            }
+            for args, expected in (
+                (["exec", "--help"], ["exec", "--help"]),
+                (["mcp", "-h"], ["mcp", "-h"]),
+                (["help", "mcp", "add"], ["help", "mcp", "add"]),
+                (["--", "--help"], ["--help"]),
+            ):
+                with self.subTest(args=args):
+                    result = subprocess.run(["bash", str(PROJECT / "codex.sh"), *args], env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(result.stdout), ["-c", 'cli_auth_credentials_store="file"', *expected])
+                    self.assertFalse((Path(directory) / ".codex-router").exists())
+
+
+class AccountRemovalTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "router"
+        self.default = Path(self.temp.name) / "default"
+        for name, value in (
+            ("ROOT", self.root), ("CONFIG", self.root / "config.json"),
+            ("LOCK", self.root / "config.lock"), ("SHARED_HOME", self.root / "shared"),
+        ):
+            patcher = patch.object(router, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = patch.object(router, "default_codex_home", return_value=self.default)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        accounts = []
+        for account_id in (1, 2):
+            home = router.account_home(account_id)
+            (home / "sessions").mkdir(parents=True)
+            (home / "auth.json").write_text("{}")
+            (home / "sessions" / "saved.jsonl").write_text("retained")
+            accounts.append({"id": account_id, "name": f"account-{account_id}", "home": str(home)})
+        router.save_config({"accounts": accounts, "last_used": 7, "sessions": {"12345678": 1, "abcdefab": 2}})
+        self.default.mkdir()
+        for item in ("auth.json", "sessions"):
+            (self.default / item).symlink_to(router.account_home(1) / item)
+        router.SHARED_HOME.mkdir()
+        (router.SHARED_HOME / "config.toml").write_text("# shared")
+
+    def test_remove_clears_registration_and_owned_default_links_but_retains_data(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(router.main(["account", "remove", "1"]), 0)
+        config = router.load_config()
+        self.assertEqual([account["id"] for account in config["accounts"]], [2])
+        self.assertEqual(config["sessions"], {"abcdefab": 2})
+        self.assertEqual(config["last_used"], 7)
+        for item in ("auth.json", "sessions"):
+            self.assertFalse((self.default / item).is_symlink())
+        self.assertEqual((router.account_home(1) / "auth.json").read_text(), "{}")
+        self.assertEqual((router.account_home(1) / "sessions" / "saved.jsonl").read_text(), "retained")
+        self.assertEqual((router.SHARED_HOME / "config.toml").read_text(), "# shared")
+        self.assertEqual(router.next_account_id(config), 3)
+
+    def test_removing_nondefault_and_last_account_preserves_other_links(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(router.main(["account", "remove", "2"]), 0)
+            self.assertEqual(router.default_account_id(router.load_config()), 1)
+            self.assertTrue((self.default / "sessions").is_symlink())
+            self.assertEqual(router.main(["account", "remove", "1"]), 0)
+        self.assertEqual(router.load_config()["accounts"], [])
+        self.assertEqual(router.load_config()["sessions"], {})
+
+    def test_missing_account_directory_can_be_unregistered(self):
+        shutil.rmtree(router.account_home(1))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(router.main(["account", "remove", "1"]), 0)
+        self.assertFalse((self.default / "auth.json").is_symlink())
+        self.assertEqual([item["id"] for item in router.load_config()["accounts"]], [2])
+
+    def test_save_failure_restores_default_links_and_keeps_registration(self):
+        before = router.CONFIG.read_bytes()
+        with patch.object(router, "save_config", side_effect=router.RouterError("save failed")):
+            with self.assertRaisesRegex(router.RouterError, "save failed"):
+                router.main(["account", "remove", "1"])
+        self.assertEqual(router.CONFIG.read_bytes(), before)
+        self.assertEqual(router.default_account_id(router.load_config()), 1)
+        self.assertTrue((self.default / "sessions").is_symlink())
+
+    def test_unlink_failure_restores_links_without_saving(self):
+        before = router.CONFIG.read_bytes()
+        unlink = Path.unlink
+        def fail_sessions(path, *args, **kwargs):
+            if path == self.default / "sessions":
+                raise PermissionError("unlink denied")
+            return unlink(path, *args, **kwargs)
+        with patch.object(Path, "unlink", fail_sessions):
+            with self.assertRaisesRegex(router.RouterError, "unlink denied"):
+                router.main(["account", "remove", "1"])
+        self.assertEqual(router.CONFIG.read_bytes(), before)
+        self.assertEqual(router.default_account_id(router.load_config()), 1)
+        self.assertTrue((self.default / "sessions").is_symlink())
+
+    def test_remove_preserves_default_links_to_other_data(self):
+        (self.default / "auth.json").unlink()
+        unrelated = Path(self.temp.name) / "unrelated.json"
+        unrelated.write_text("untouched")
+        (self.default / "auth.json").symlink_to(unrelated)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(router.main(["account", "remove", "1"]), 0)
+        self.assertEqual((self.default / "auth.json").resolve(), unrelated.resolve())
+        self.assertEqual(unrelated.read_text(), "untouched")
+
+    def test_resume_with_profile_prefix_uses_session_account_before_default(self):
+        for profile in (["-p", "quality"], ["--profile", "efficient"], ["--profile=quality"], ["-pefficient"]):
+            output = io.StringIO()
+            with self.subTest(profile=profile), redirect_stdout(output):
+                self.assertEqual(router.choose(["--route-info", *profile, "resume", "abcdefab"]), 0)
+            self.assertEqual(output.getvalue().strip().split("\t"), [str(router.account_home(2)), "resume"])
+            self.assertEqual(router.load_config()["last_used"], 7)
+
+    def test_invalid_remove_does_not_change_registration_or_default(self):
+        before = router.CONFIG.read_bytes()
+        for args in (["remove"], ["remove", "0"], ["remove", "bad"], ["remove", "3"], ["remove", "1", "extra"]):
+            with self.subTest(args=args), self.assertRaises(router.RouterError) as error:
+                router.main(["account", *args])
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(router.CONFIG.read_bytes(), before)
+            self.assertEqual(router.default_account_id(router.load_config()), 1)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
 
 ## 安装
 
-前置条件：Python 3.11 或更高版本（需要标准库 `tomllib`）以及已安装的 Codex CLI。
+前置条件：[uv](https://docs.astral.sh/uv/getting-started/installation/)。Python 3.11 或更高版本由 uv 按 `pyproject.toml` 选择，缺少时可自动下载；Codex CLI 和 RTK 的缺失组件处理见下文。
 
 ```bash
 git clone https://github.com/smices/multi-account-codex-router.git
@@ -16,11 +16,11 @@ cd multi-account-codex-router
 
 安装器会：
 
-- 创建仓库内的 `.venv` Python 环境。
+- 使用 `uv sync --locked`，按 `pyproject.toml` 和 `uv.lock` 创建或同步仓库内的 `.venv` Python 环境；当前只使用标准库，没有第三方 Python 依赖。
 - 将 `~/codex.sh` 链接到仓库中的启动脚本。
+- 如果 `~/codex.sh` 已存在且不是本仓库的链接，先询问是否替换；确认后备份为 `~/codex.sh.pre-router-backup.<timestamp>`。
 
 推荐直接运行 `~/codex.sh`，脚本的 shebang 会选择 Bash；也可显式运行 `bash ~/codex.sh`。Bash 和 Zsh 中的 `. ~/codex.sh` 会转交给子 Bash 执行，保留当前 shell 的选项和工作目录，并返回路由器的退出状态。
-- 如果 `~/codex.sh` 已存在且不是本仓库的链接，先备份为 `~/codex.sh.pre-router-backup.<timestamp>`。
 
 安装器会自动应用可移植的 Astra/Sol/Luna preset 到路由器的共享配置；只管理该 preset 声明的字段，已有的无关配置、认证和 session 会保留。每个被改动的既有共享文件都会在路由器备份目录中保存时间戳副本。
 
@@ -45,9 +45,10 @@ Global options
 | 选项 | 说明 |
 | --- | --- |
 | `-a <id>` | 强制指定本次运行账号（绕过默认/轮换） |
-| `-q` | 只输出 Codex 结果，不显示路由提示 |
-| `-v` / `--verbose` | 输出路由诊断信息 |
+| `-q` | 启动 Codex 时隐藏路由提示；管理命令无效 |
+| `-v` / `--verbose` | 启动 Codex 时输出路由诊断；管理命令无效 |
 | `-h` / `--help` | 显示帮助 |
+| `--` | 结束路由器选项解析；保留管理命令的分发 |
 
 Account management
 
@@ -56,6 +57,7 @@ Account management
 | `codex.sh account list` | 查看账号列表 |
 | `codex.sh account add` | 添加账号 |
 | `codex.sh account retry 2` | 重新登录账号 2 |
+| `codex.sh account remove 2` | 移除账号 2 的路由登记和对应默认链接，保留本地认证与会话 |
 | `codex.sh account default 3` | 设置账号 3 为默认账号 |
 | `codex.sh account rename 2 quota-account-b` | 设置账号 2 的本地名称 |
 | `codex.sh account sync-shared` | 同步共享配置 |
@@ -73,6 +75,12 @@ Session & routing
 | `codex.sh -a 2 status` | 强制使用账号 2 查看状态 |
 | `codex.sh resume <SESSION_ID>` | 恢复会话 |
 | `codex.sh -a 2 resume <SESSION_ID>` | 强制用账号 2 恢复会话 |
+| `codex.sh -p quality resume <SESSION_ID>` | 使用 quality profile，按会话原账号恢复 |
+| `codex.sh help exec` | 显示 Codex 原生命令帮助，无需账号 |
+
+`account`、`config`、`status`、`update` 是路由器管理命令，均支持 `-h` / `--help`，例如 `codex.sh account remove --help`。`-a` 只适用于启动 Codex 和 `status`，其他管理命令拒绝该选项。路由器的 `update` 更新本仓库；升级 Codex CLI 请直接运行 `codex update`。登录使用 `account add` / `account retry`，路由器不提供 `login` 子命令。
+
+`account remove <id>` 同时清除该账号的会话路由缓存，以及默认 Codex 目录中精确指向该账号的认证、会话软链接。账号目录中的数据和共享配置保留，也不会注销远端登录；保留的目录仍占用原 ID。移除默认账号后，可用 `account default <id>` 选择其他账号，否则路由器按轮换选择；直接运行 `codex` 可能需要重新选择默认账号或登录。
 
 不指定 `-a` 时，路由器优先使用通过 `account default` 设置的默认账号；若未配置默认账号，则按账号间轮换。`resume` 会尝试定位 session 原本所在的账号。
 
@@ -85,6 +93,8 @@ Session & routing
 `status` 会显示账号邮箱、套餐和实时额度窗口；查询期间会显示单行加载状态。`-a <id> status` 只查询指定账号。仅认证失效或未登录时提示 `account retry <id>`；超时、连接和协议失败应先检查对应错误，API key 登录可能不提供订阅额度。
 
 路由器选项 `-a`、`-q`、`-v` 放在 Codex 命令或参数之前；从第一个 Codex 参数开始，后续参数原样转发，例如 `codex.sh -a 2 exec --help` 和 `codex.sh -q exec -a never "任务"`。
+
+Codex 原生的 `-a` 表示审批策略。交互启动时可用 `codex.sh -- -a never` 传入；`-p` / `--profile` 也是 Codex 原生参数，已有的自定义 profile 仍可使用，由 Codex 校验。`codex.sh -- --help` 显示 Codex 顶层帮助；`codex.sh exec --help` 和 `codex.sh help exec` 可直接读取帮助，不进行账号选择。
 
 账号隔离和默认账号链接依赖各账号的 `auth.json`，因此路由器在登录、状态查询和启动 Codex 时指定 `cli_auth_credentials_store="file"`。管理员若强制其他认证存储策略，需要先解决策略冲突。
 
@@ -123,7 +133,7 @@ codex.sh config apply
 codex.sh config status
 ```
 
-仓库随附完整的 `AGENTS.md`、`RTK.md`、两个推理 Profile、模型配置和两个 Agent 定义：负责常规任务与 Luna 失败接管的 `sol-general`，以及负责边界清楚的实现与检查的 `luna-worker`。安装器会检查 Codex CLI、Python 3.11+ 和正确的 RTK Token Killer；Codex 或 RTK 缺失时会提示是否使用各自官方安装器自动安装，默认选择安装。非交互环境必须显式使用 `--force` 才会自动安装缺失组件。
+仓库随附完整的 `AGENTS.md`、`RTK.md`、两个推理 Profile、模型配置和两个 Agent 定义：负责常规任务与 Luna 失败接管的 `sol-general`，以及负责边界清楚的实现与检查的 `luna-worker`。安装器会检查 uv、Codex CLI 和正确的 RTK Token Killer，再同步 uv 环境并验证 Python 3.11+ 的 `tomllib`；uv 缺失时提示官方安装指引。Codex 或 RTK 缺失时会提示是否使用各自官方安装器自动安装，默认选择安装。非交互环境必须显式使用 `--force` 才会自动安装缺失组件。
 
 检测到已有共享 preset 或 launcher 时会分别询问是否覆盖，默认回车跳过。需要先备份再强制覆盖时运行：
 
@@ -175,6 +185,15 @@ codex
 该命令会让默认 `~/.codex` 使用账号 3 的认证和 session，并接入共享配置。旧的默认认证文件会备份为 `auth.json.default-backup*`。
 
 路由器默认先按 `account default` 决定账号，不满足时才轮换。若要固定本次运行某账号，请使用 `~/codex.sh -a 3`。
+
+## 开发与验证
+
+```bash
+uv sync --locked
+uv run --locked python -m unittest discover -s tests
+```
+
+新增 Python 依赖使用 `uv add <package>`，移除使用 `uv remove <package>`，并一并提交 `pyproject.toml` 和 `uv.lock`。启动脚本直接使用 uv 管理的 `.venv/bin/python`。
 
 ## 卸载
 

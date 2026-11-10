@@ -482,6 +482,36 @@ def login_rename(account_id, name):
     return 0
 
 
+def login_remove(account_id):
+    with config_lock():
+        cfg = load_config()
+        account = next(
+            (item for item in cfg["accounts"] if item["id"] == account_id), None
+        )
+        if account is None:
+            raise RouterError(f"账号不存在: {account_id}", 2)
+        cfg["accounts"] = [item for item in cfg["accounts"] if item["id"] != account_id]
+        cfg["sessions"] = {key: value for key, value in cfg["sessions"].items() if value != account_id}
+        removed_links = []
+        try:
+            for item in ("auth.json", "sessions"):
+                link = default_codex_home() / item
+                target = Path(account["home"]) / item
+                if link.is_symlink() and os.path.realpath(link) == os.path.realpath(target):
+                    original = os.readlink(link)
+                    link.unlink()
+                    removed_links.append((link, original))
+            save_config(cfg)
+        except (OSError, RouterError) as exc:
+            for link, original in removed_links:
+                os.symlink(original, link)
+            if isinstance(exc, OSError):
+                raise RouterError(f"无法移除账号 {account_id}: {exc}") from exc
+            raise
+    print(f"✅ 已移除账号 {account_id}，本地认证和会话仍保留在: {account['home']}")
+    return 0
+
+
 def default_codex_home():
     return Path.home() / ".codex"
 
@@ -1073,6 +1103,15 @@ def usable_accounts(cfg):
 
 
 def session_id_from_args(args):
+    while args:
+        if args[0] in ("-p", "--profile"):
+            if len(args) < 2:
+                return None
+            args = args[2:]
+        elif args[0].startswith(("--profile=", "-p")):
+            args = args[1:]
+        else:
+            break
     if len(args) < 2 or args[0] != "resume" or args[1].startswith("-"):
         return None
     session_id = args[1]
@@ -1196,6 +1235,8 @@ def main(args):
         return login_rename(parse_positive_int(args[2], "账号 ID"), " ".join(args[3:]))
     if len(args) == 3 and args[:2] == ["account", "retry"]:
         return login_retry(parse_positive_int(args[2], "账号 ID"))
+    if len(args) == 3 and args[:2] == ["account", "remove"]:
+        return login_remove(parse_positive_int(args[2], "账号 ID"))
     if args and args[0] == "choose":
         return choose(args[1:])
     raise RouterError("未知命令或参数不完整", 2)

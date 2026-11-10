@@ -32,13 +32,16 @@ show_help() {
 Codex Router
 
 Usage
-  codex.sh [global options] <command> [args...]
+  codex.sh [router options] [codex command/options/prompt...]
 
 Global options
   -a <id>            强制指定本次运行账号（绕过默认/轮换）
-  -q                 只输出 Codex 结果，不显示路由提示
-  -v, --verbose      输出路由诊断信息
+  -q                 启动 Codex 时隐藏路由提示（管理命令无效）
+  -v, --verbose      启动 Codex 时输出路由诊断（管理命令无效）
   -h, --help         显示帮助
+  --                 结束路由器选项解析
+  路由器选项必须放在第一个 Codex 参数之前；之后的参数原样转发。
+  原生 Codex 的 -a 表示审批策略，可用 codex.sh -- -a never 传入。
 
 Account management
   account list                 查看账号列表
@@ -47,6 +50,8 @@ Account management
   account sync-shared          同步并修正所有账号的共享配置
   account default <id>         设置直接运行 codex 时默认账号
   account retry <id>           重新登录指定账号
+  account remove <id>          移除路由登记和对应默认链接，保留本地认证与会话
+  -a 仅适用于 Codex 启动和 status；其他管理命令不接受 -a。
 
 Configuration
   config apply                 应用可移植 Astra/Sol/Luna preset 并同步共享配置
@@ -56,6 +61,8 @@ Configuration
 Reasoning profiles
   -p efficient                  GPT-6.1 Sol low + GPT-6 Luna medium，适合常规任务
   -p quality                    Astra medium + Luna medium，默认高质量模式
+  -p / --profile 为 Codex 原生参数，也支持已有的自定义 profile。
+  ultra preset 已退役，不再随路由器提供。
   不传 -p                      使用 quality 等价的共享默认配置
   Luna 无法推进                按调度规则交给 GPT-6.1 Sol low 接管
 
@@ -63,11 +70,16 @@ Session & routing
   resume <SESSION_ID>          恢复 Codex session
   status                       显示账号状态与实时额度
   -a <id> <codex args...>     强制指定账号运行任意 codex 命令
+  help <codex command>         显示 Codex 原生命令帮助
+  管理命令均支持 -h / --help，例如 account remove --help。
+  account、config、status、update 是路由器管理命令；login 请使用 account。
+  update 更新路由器；升级 Codex CLI 请直接运行 codex update。
 
 Examples
   codex.sh account add                 添加新账号
   codex.sh account list                查看账号列表
   codex.sh account retry 2             重新登录账号 2
+  codex.sh account remove 2            移除账号 2，保留其本地数据
   codex.sh account rename 2 alias      修改账号 2 的名称
   codex.sh account sync-shared         同步共享配置
   codex.sh account default 3           将账号 3 设为默认
@@ -177,19 +189,18 @@ while (( INDEX < ${#ARGS[@]} )); do
 
 done
 
-for (( PROFILE_INDEX=0; PROFILE_INDEX<${#CODEX_ARGS[@]}; PROFILE_INDEX++ )); do
-  case "${CODEX_ARGS[PROFILE_INDEX]}" in
-    --) break ;;
-    --profile=ultra|-pultra)
-      die 2 "ultra 已移除，请使用 -p efficient 或 -p quality"
-      ;;
-    -p|--profile)
-      if (( PROFILE_INDEX + 1 < ${#CODEX_ARGS[@]} )) && [[ "${CODEX_ARGS[PROFILE_INDEX + 1]}" == "ultra" ]]; then
-        die 2 "ultra 已移除，请使用 -p efficient 或 -p quality"
-      fi
+if (( ${#CODEX_ARGS[@]} > 0 )); then
+  case "${CODEX_ARGS[0]}" in
+    account|config|status|update)
+      for ARG in "${CODEX_ARGS[@]:1}"; do
+        case "$ARG" in
+          --) break ;;
+          -h|--help) show_help; exit 0 ;;
+        esac
+      done
       ;;
   esac
-done
+fi
 
 if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "update" ]]; then
   if (( ${#CODEX_ARGS[@]} != 1 )) || [[ -n "$ACCOUNT_ID" ]]; then
@@ -201,7 +212,7 @@ fi
 
 if (( ${#CODEX_ARGS[@]} > 1 )) && [[ "${CODEX_ARGS[0]}" == "account" ]]; then
   case "${CODEX_ARGS[1]}" in
-    default|list|add|rename|sync-shared|retry)
+    default|list|add|rename|sync-shared|retry|remove)
       ;;
     *)
       die 2 "未知 account 子命令: ${CODEX_ARGS[1]}"
@@ -225,6 +236,15 @@ if (( ${#CODEX_ARGS[@]} > 0 )) && [[ "${CODEX_ARGS[0]}" == "config" ]]; then
     die 1 "路由器未安装或脚本不可读"
   fi
   exec "$ROUTER_PYTHON" "$ROUTER_SCRIPT" "${CODEX_ARGS[@]}"
+fi
+
+# These unambiguous help forms need neither an account nor configuration writes.
+if (( ${#CODEX_ARGS[@]} > 0 )) && {
+  [[ "${CODEX_ARGS[0]}" == "help" || "${CODEX_ARGS[0]}" == "--help" || "${CODEX_ARGS[0]}" == "-h" ]] ||
+  { (( ${#CODEX_ARGS[@]} == 2 )) && [[ "${CODEX_ARGS[1]}" == "--help" || "${CODEX_ARGS[1]}" == "-h" ]]; };
+}; then
+  command -v codex >/dev/null 2>&1 || die 1 "未找到 codex CLI 可执行命令"
+  exec codex -c 'cli_auth_credentials_store="file"' "${CODEX_ARGS[@]}"
 fi
 
 if [[ ! -x "$ROUTER_PYTHON" ]]; then
@@ -286,7 +306,7 @@ if (( QUIET == 0 )); then
       printf '🚀 Using default account %s:\n   %s\n' "$SELECTED_ID" "$SELECTED_CODEX_HOME"
       ;;
     resume)
-      printf '🚀 Using account for session %s:\n   %s\n' "${CODEX_ARGS[1]}" "$SELECTED_CODEX_HOME"
+      printf '🚀 Using session account %s:\n   %s\n' "$SELECTED_ID" "$SELECTED_CODEX_HOME"
       ;;
     *)
       printf '🚀 Using account (round-robin): %s:\n   %s\n' "$SELECTED_ID" "$SELECTED_CODEX_HOME"

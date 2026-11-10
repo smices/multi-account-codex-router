@@ -16,22 +16,20 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: ./install.sh [--force]
+Usage: ./install.sh [--force|-f|--help|-h]
 
-  --force  Install missing required tools and overwrite managed files after backup.
+  --force, -f  Install missing required tools and overwrite managed files after backup.
+  --help, -h   Show this help.
 EOF
 }
 
+if (( $# > 1 )); then usage >&2; die "Only one install option is supported."; fi
 case "${1:-}" in
   "") ;;
   --force|-f) FORCE=1 ;;
   --help|-h) usage; exit 0 ;;
   *) usage >&2; die "Unknown option: $1" ;;
 esac
-if (( $# > 1 )); then
-  usage >&2
-  die "Only one install option is supported."
-fi
 
 confirm_install() {
   local prompt="$1" reply
@@ -99,6 +97,8 @@ ensure_rtk() {
 for required in \
   "$PROJECT_LAUNCHER" \
   "$PROJECT_DIR/_codex.py" \
+  "$PROJECT_DIR/pyproject.toml" \
+  "$PROJECT_DIR/uv.lock" \
   "$PROJECT_DIR/presets/sol-luna/AGENTS.md" \
   "$PROJECT_DIR/presets/sol-luna/RTK.md" \
   "$PROJECT_DIR/presets/sol-luna/config.toml" \
@@ -109,19 +109,13 @@ for required in \
   [[ -f "$required" ]] || die "Incomplete checkout; missing repository preset component: ${required#$PROJECT_DIR/}"
 done
 
-if ! command -v python3 >/dev/null 2>&1; then
-  die "Python 3.11+ is required. Install it before running this installer."
-fi
-if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
-  die "Python 3.11+ is required: the standard-library tomllib module is unavailable."
-fi
+command -v uv >/dev/null 2>&1 || die "uv is required. Install it using the official instructions: https://docs.astral.sh/uv/getting-started/installation/"
 
 ensure_codex
 ensure_rtk
 
-if [[ ! -x "$VENV_DIR/bin/python" ]]; then
-  python3 -m venv "$VENV_DIR"
-fi
+UV_PROJECT_ENVIRONMENT="$VENV_DIR" uv sync --locked --project "$PROJECT_DIR"
+"$VENV_DIR/bin/python" -c 'import tomllib' || die "The uv environment does not provide Python 3.11+ with tomllib."
 
 PRESET_EXISTS=0
 for target in AGENTS.md RTK.md config.toml \
