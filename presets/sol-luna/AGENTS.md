@@ -75,6 +75,7 @@
 - Preserve the existing working tree and unrelated changes.
 - Do not commit, amend, push, publish, deploy, open a pull request, or send external messages unless explicitly requested.
 - A request to commit does not authorize pushing.
+- The user has standing authorization for a scoped local Git commit after each completed feature or fix. Before committing, review the change as a reviewer, fix confirmed bugs, omissions and requirement mismatches, rerun relevant validation, and inspect the exact staged dependency closure. Preserve unrelated work; this authorization does not include pushing, publishing or deployment.
 - Never use destructive Git operations against user work unless the user explicitly authorizes the exact action.
 - Prefer non-interactive and reversible operations.
 
