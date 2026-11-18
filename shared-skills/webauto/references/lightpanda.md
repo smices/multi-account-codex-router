@@ -1,6 +1,6 @@
 # Lightpanda browser tasks
 
-Use Lightpanda for ordinary public HTML/Markdown pages, links, tables, JavaScript-provided data, and simple DOM forms. Basic JavaScript and forms are supported; do not route every scripted page to a full browser. For screenshots requiring visual fidelity, existing user logins, canvas/media, unsupported downloads/uploads, complex app behavior, or manual browser handoff, use the ego-lite mode of this skill. Do not run both engines on every URL.
+Use Lightpanda for ordinary public HTML/Markdown pages, links, tables, JavaScript-provided data, and simple DOM forms. Basic JavaScript and forms are supported; do not route every scripted page to a full browser. For screenshots requiring visual fidelity, authenticated workflows, canvas/media, unsupported downloads/uploads, complex app behavior, or manual browser handoff, use the ego-lite mode of this skill and follow its numbered private single-tab space policy. Do not run both engines on every URL.
 
 If `lightpanda` is not found, follow [lightpanda-install.md](lightpanda-install.md); skill availability does not mean the runtime is installed. After installation, read back a small public page to confirm the CLI produced the requested content. Check `lightpanda version` and the relevant `lightpanda help fetch` or `lightpanda help run` once per session, or again after an upgrade or a syntax error. Syntax varies by version. Do not guess flags, increase timeouts indiscriminately, auto-update, or set up a cloud subscription/MCP integration.
 
